@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # Configuration
@@ -6,21 +6,16 @@ BASE_URL="https://junie-local.erokhins.com"
 MODELS_DIR="$HOME/.local/share/junie-local/models"
 TMP_DIR=$(mktemp -d)
 
-# Model archives
-ARCHIVES=(
-  "models--mlx-community--Qwen3.6-27B-4bit.zip"
-  "models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
-)
-
 # oMLX DMG
 OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
 OMLX_FILE="oMLX-0.5.3-macos26-27.dmg"
 OMLX_SHA256="15a2a74e20bf4518d6f6133af4ecc0f3e4c6610f3127c1612ae6178ef749a4c8"
 
-# MD5 checksums
-declare -A CHECKSUMS
-CHECKSUMS["models--mlx-community--Qwen3.6-27B-4bit.zip"]="5ccc3a1cc4f09f91343a510a8704b02d"
-CHECKSUMS["models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"]="5788dcff30df52fc90b65c0c9fc514db"
+# Model archives and their MD5 checksums (tab-separated)
+MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
+MODEL_MD5_1="5ccc3a1cc4f09f91343a510a8704b02d"
+MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
+MODEL_MD5_2="5788dcff30df52fc90b65c0c9fc514db"
 
 echo "=== Junie Local Model Installer ==="
 echo ""
@@ -29,32 +24,38 @@ echo ""
 echo "Creating models directory: $MODELS_DIR"
 mkdir -p "$MODELS_DIR"
 
-# Download and verify each archive
-for archive in "${ARCHIVES[@]}"; do
+# Function to download and verify a model archive
+download_and_verify() {
+  archive="$1"
+  expected_md5="$2"
+
   echo "Downloading $archive..."
   curl -fSL -C - -o "$TMP_DIR/$archive" "$BASE_URL/$archive"
   echo "  Download complete."
 
-  # Verify checksum
-  expected="${CHECKSUMS[$archive]}"
   actual=$(md5 -q "$TMP_DIR/$archive")
-
-  if [ "$actual" != "$expected" ]; then
+  if [ "$actual" != "$expected_md5" ]; then
     echo "  ERROR: Checksum mismatch for $archive"
-    echo "    Expected: $expected"
+    echo "    Expected: $expected_md5"
     echo "    Actual:   $actual"
     rm -rf "$TMP_DIR"
     exit 1
   fi
   echo "  Checksum verified: $actual"
-done
+}
+
+# Download and verify model archives
+download_and_verify "$MODEL_ZIP_1" "$MODEL_MD5_1"
+download_and_verify "$MODEL_ZIP_2" "$MODEL_MD5_2"
 
 # Extract model archives to models directory
-for archive in "${ARCHIVES[@]}"; do
-  echo "Extracting $archive to $MODELS_DIR..."
-  unzip -q "$TMP_DIR/$archive" -d "$MODELS_DIR"
-  echo "  Extraction complete."
-done
+echo "Extracting $MODEL_ZIP_1 to $MODELS_DIR..."
+unzip -q "$TMP_DIR/$MODEL_ZIP_1" -d "$MODELS_DIR"
+echo "  Extraction complete."
+
+echo "Extracting $MODEL_ZIP_2 to $MODELS_DIR..."
+unzip -q "$TMP_DIR/$MODEL_ZIP_2" -d "$MODELS_DIR"
+echo "  Extraction complete."
 
 # Download and install oMLX DMG
 echo ""
