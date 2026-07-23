@@ -27,7 +27,7 @@ mkdir -p "$MODELS_DIR"
 # Download and verify each archive
 for archive in "${ARCHIVES[@]}"; do
   echo "Downloading $archive..."
-  curl -fSL -o "$TMP_DIR/$archive" "$BASE_URL/$archive"
+  curl -fSL -C - -o "$TMP_DIR/$archive" "$BASE_URL/$archive"
   echo "  Download complete."
 
   # Verify checksum
