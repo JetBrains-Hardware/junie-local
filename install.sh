@@ -3,8 +3,9 @@ set -e
 
 # Configuration
 BASE_URL="https://junie-local.erokhins.com"
-MODELS_DIR="$HOME/.local/share/junie-local/models"
-TMP_DIR=$(mktemp -d)
+BASE_DIR="$HOME/.local/share/junie-local"
+MODELS_DIR="$BASE_DIR/models"
+DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 
 # oMLX DMG
 OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
@@ -20,9 +21,10 @@ MODEL_MD5_2="5788dcff30df52fc90b65c0c9fc514db"
 echo "=== Junie Local Model Installer ==="
 echo ""
 
-# Create models directory
-echo "Creating models directory: $MODELS_DIR"
+# Create directories
+echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
+mkdir -p "$DOWNLOAD_DIR"
 
 # Function to download and verify a model archive
 download_and_verify() {
@@ -30,15 +32,15 @@ download_and_verify() {
   expected_md5="$2"
 
   echo "Downloading $archive..."
-  curl -fSL -C - -o "$TMP_DIR/$archive" "$BASE_URL/$archive"
+  curl -fSL -C - -o "$DOWNLOAD_DIR/$archive" "$BASE_URL/$archive"
   echo "  Download complete."
 
-  actual=$(md5 -q "$TMP_DIR/$archive")
+  actual=$(md5 -q "$DOWNLOAD_DIR/$archive")
   if [ "$actual" != "$expected_md5" ]; then
     echo "  ERROR: Checksum mismatch for $archive"
     echo "    Expected: $expected_md5"
     echo "    Actual:   $actual"
-    rm -rf "$TMP_DIR"
+    rm -rf "$DOWNLOAD_DIR"
     exit 1
   fi
   echo "  Checksum verified: $actual"
@@ -50,33 +52,33 @@ download_and_verify "$MODEL_ZIP_2" "$MODEL_MD5_2"
 
 # Extract model archives to models directory
 echo "Extracting $MODEL_ZIP_1 to $MODELS_DIR..."
-unzip -q "$TMP_DIR/$MODEL_ZIP_1" -d "$MODELS_DIR"
+unzip -q "$DOWNLOAD_DIR/$MODEL_ZIP_1" -d "$MODELS_DIR"
 echo "  Extraction complete."
 
 echo "Extracting $MODEL_ZIP_2 to $MODELS_DIR..."
-unzip -q "$TMP_DIR/$MODEL_ZIP_2" -d "$MODELS_DIR"
+unzip -q "$DOWNLOAD_DIR/$MODEL_ZIP_2" -d "$MODELS_DIR"
 echo "  Extraction complete."
 
 # Download and install oMLX DMG
 echo ""
 echo "Downloading $OMLX_FILE..."
-curl -fSL -C - -o "$TMP_DIR/$OMLX_FILE" "$OMLX_URL"
+curl -fSL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
 echo "  Download complete."
 
 # Verify SHA256 checksum
-actual_sha256=$(shasum -a 256 "$TMP_DIR/$OMLX_FILE" | awk '{print $1}')
+actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$OMLX_FILE" | awk '{print $1}')
 if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
   echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
   echo "    Expected: $OMLX_SHA256"
   echo "    Actual:   $actual_sha256"
-  rm -rf "$TMP_DIR"
+  rm -rf "$DOWNLOAD_DIR"
   exit 1
 fi
 echo "  SHA256 verified: $actual_sha256"
 
 # Mount and open oMLX DMG
 echo "Opening oMLX DMG..."
-hdiutil attach "$TMP_DIR/$OMLX_FILE" > /dev/null 2>&1
+hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" > /dev/null 2>&1
 MOUNT_POINT=$(ls /Volumes/ | grep "^oMLX" | head -1)
 MOUNT_POINT="/Volumes/$MOUNT_POINT"
 open "$MOUNT_POINT"
@@ -84,7 +86,7 @@ echo ""
 echo "  Drag the oMLX.app into the Applications folder."
 
 # Cleanup
-rm -rf "$TMP_DIR"
+rm -rf "$DOWNLOAD_DIR"
 
 echo ""
 echo "=== Installation complete ==="
