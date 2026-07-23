@@ -21,6 +21,16 @@ MODEL_MD5_2="5788dcff30df52fc90b65c0c9fc514db"
 echo "=== Junie Local Model Installer ==="
 echo ""
 
+# Cleanup function — kills child processes on interrupt
+cleanup() {
+  echo ""
+  echo "Interrupted — partial downloads preserved in $DOWNLOAD_DIR"
+  echo "Re-run this script to resume."
+  kill $(jobs -p) 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+trap cleanup INT TERM
+
 # Create directories
 echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
@@ -40,7 +50,6 @@ download_and_verify() {
     echo "  ERROR: Checksum mismatch for $archive"
     echo "    Expected: $expected_md5"
     echo "    Actual:   $actual"
-    rm -rf "$DOWNLOAD_DIR"
     exit 1
   fi
   echo "  Checksum verified: $actual"
@@ -71,8 +80,7 @@ if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
   echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
   echo "    Expected: $OMLX_SHA256"
   echo "    Actual:   $actual_sha256"
-  rm -rf "$DOWNLOAD_DIR"
-  exit 1
+exit 1
 fi
 echo "  SHA256 verified: $actual_sha256"
 
@@ -85,7 +93,8 @@ open "$MOUNT_POINT"
 echo ""
 echo "  Drag the oMLX.app into the Applications folder."
 
-# Cleanup
+# Cleanup downloads
+echo "Removing downloaded archives..."
 rm -rf "$DOWNLOAD_DIR"
 
 echo ""
