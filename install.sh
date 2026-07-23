@@ -42,7 +42,7 @@ download_and_verify() {
   expected_md5="$2"
 
   echo "Downloading $archive..."
-  curl -fSL -C - -o "$DOWNLOAD_DIR/$archive" "$BASE_URL/$archive"
+  curl -SL -C - -o "$DOWNLOAD_DIR/$archive" "$BASE_URL/$archive"
   echo "  Download complete."
 
   actual=$(md5 -q "$DOWNLOAD_DIR/$archive")
@@ -71,7 +71,7 @@ echo "  Extraction complete."
 # Download and install oMLX DMG
 echo ""
 echo "Downloading $OMLX_FILE..."
-curl -fSL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
+curl -SL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
 echo "  Download complete."
 
 # Verify SHA256 checksum
