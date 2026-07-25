@@ -98,6 +98,10 @@ MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
 MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 
+# Junie model configuration
+# TODO: calculate it
+JUNIE_MAX_CONTEXT_LENGTH=90000
+
 echo "=== Junie Local Model Installer ==="
 echo ""
 
@@ -136,6 +140,51 @@ version_ge() {
   # Use sort -V to compare versions
   highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
   [ "$v1" = "$highest" ]
+}
+
+# Function to create Junie model config file
+create_junie_model_config() {
+  JUNIE_MODELS_DIR="$HOME/.junie/models"
+  JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/local-qwen3.6-27b-4bit.json"
+  SETTINGS_FILE="$HOME/.omlx/settings.json"
+
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
+    echo "  Skipping Junie model config creation."
+    return 1
+  fi
+
+  # Read port and API key from oMLX settings
+  SERVER_PORT=$(plutil -extract "server.port" raw "$SETTINGS_FILE" 2>/dev/null || true)
+  API_KEY=$(plutil -extract "auth.api_key" raw "$SETTINGS_FILE" 2>/dev/null || true)
+
+  if [ -z "$SERVER_PORT" ] || [ -z "$API_KEY" ]; then
+    echo "  WARNING: Could not read port or API key from oMLX settings."
+    echo "  Skipping Junie model config creation."
+    return 1
+  fi
+
+  # Create ~/.junie/models directory if it doesn't exist
+  if [ ! -d "$JUNIE_MODELS_DIR" ]; then
+    mkdir -p "$JUNIE_MODELS_DIR"
+  fi
+
+  # Write the Junie model config
+  echo "  Creating Junie model config at $JUNIE_CONFIG_FILE..."
+  cat > "$JUNIE_CONFIG_FILE" <<EOF
+{
+  "id": "$MODEL_ID_1",
+  "baseUrl": "http://localhost:$SERVER_PORT/v1/chat/completions",
+  "apiType": "OpenAICompletion",
+  "apiKey": "$API_KEY",
+  "maxContextLength": $JUNIE_MAX_CONTEXT_LENGTH
+  "extraBody": {
+    "enable_thinking": false
+  }
+}
+
+  echo "  Junie model config created."
+  return 0
 }
 
 # Function to restart oMLX server to load new settings
@@ -442,6 +491,7 @@ echo ""
 configure_omlx_models_dir
 configure_model_settings
 restart_omlx
+create_junie_model_config
 
 echo ""
 echo "=== Installation complete ==="
