@@ -138,6 +138,38 @@ version_ge() {
   [ "$v1" = "$highest" ]
 }
 
+# Function to add MODELS_DIR to oMLX model_dirs if not already present
+configure_omlx_models_dir() {
+  SETTINGS_FILE="$HOME/.omlx/settings.json"
+
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
+    echo "  Skipping model_dirs configuration."
+    return 1
+  fi
+
+  # Check if MODELS_DIR is already in model_dirs
+  # Extract actual model_dirs entries via plutil (raw output is already unescaped)
+  i=0
+  while true; do
+    DIR=$(plutil -extract "model.model_dirs.$i" raw "$SETTINGS_FILE" 2>/dev/null || true)
+    if [ -z "$DIR" ]; then
+      break
+    fi
+    if [ "$DIR" = "$MODELS_DIR" ]; then
+      echo "  $MODELS_DIR is already in oMLX model_dirs."
+      return 0
+    fi
+    i=$((i + 1))
+  done
+
+  # Append MODELS_DIR to model_dirs using plutil -append
+  echo "  Adding $MODELS_DIR to oMLX model_dirs..."
+  plutil -insert model.model_dirs -string "$MODELS_DIR" -append -r "$SETTINGS_FILE"
+  echo "  Added $MODELS_DIR to oMLX model_dirs."
+  return 0
+}
+
 # Function to list models available in oMLX
 # Stores result in global OMLX_MODELS variable (newline-separated IDs)
 list_omlx_models() {
@@ -362,6 +394,13 @@ install_model_if_needed "$MODEL_ZIP_2" "$MODEL_SHA256_2" "$MODEL_ID_2"
 # Cleanup model downloads
 echo "Removing downloaded archives..."
 rm -rf "$DOWNLOAD_DIR"
+
+# ============================================================
+# Step 3: Configure oMLX to include our models directory
+# ============================================================
+echo "=== Configuring oMLX ==="
+echo ""
+configure_omlx_models_dir
 
 echo ""
 echo "=== Installation complete ==="
