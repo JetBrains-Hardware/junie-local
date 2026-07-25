@@ -177,12 +177,13 @@ create_junie_model_config() {
   "baseUrl": "http://localhost:$SERVER_PORT/v1/chat/completions",
   "apiType": "OpenAICompletion",
   "apiKey": "$API_KEY",
-  "maxContextLength": $JUNIE_MAX_CONTEXT_LENGTH
+  "temperature": 0.6,
+  "maxContextLength": $JUNIE_MAX_CONTEXT_LENGTH,
   "extraBody": {
     "enable_thinking": false
   }
 }
-
+EOF
   echo "  Junie model config created."
   return 0
 }
