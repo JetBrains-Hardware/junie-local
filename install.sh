@@ -41,6 +41,41 @@ case "$CPU_MODEL" in
     ;;
 esac
 
+# ============================================================
+# System requirements check: memory
+# ============================================================
+echo "=== Checking system requirements ==="
+echo ""
+
+# Get total memory in bytes from sysctl, then convert to GB
+MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
+MEM_GB=$((MEM_BYTES / 1073741824))
+
+echo "  Detected memory: ${MEM_GB} GB"
+
+if [ "$MEM_GB" -lt 32 ]; then
+  echo ""
+  echo "  ERROR: For the model to run you need at least 33 GB of memory, you have only ${MEM_GB} GB."
+  exit 1
+elif [ "$MEM_GB" -lt 63 ]; then
+  echo ""
+  echo "  WARNING: Recommended memory is 63 GB for optimal performance."
+  echo "  You have ${MEM_GB} GB."
+  echo ""
+  read -r -p "  Do you really want to continue? [y/N] " MEM_ANSWER
+  case "$MEM_ANSWER" in
+    [yY][eE][sS]|[yY])
+      echo "  Continuing with installation..."
+      ;;
+    *)
+      echo "  Installation cancelled."
+      exit 1
+      ;;
+  esac
+fi
+
+echo ""
+
 # Configuration
 BASE_URL="https://junie-local.erokhins.com"
 BASE_DIR="$HOME/.local/share/junie-local"
@@ -88,41 +123,6 @@ trap 'cleanup 143' TERM
 echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
 mkdir -p "$DOWNLOAD_DIR"
-
-# ============================================================
-# System requirements check: memory
-# ============================================================
-echo "=== Checking system requirements ==="
-echo ""
-
-# Get total memory in bytes from sysctl, then convert to GB
-MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
-MEM_GB=$((MEM_BYTES / 1073741824))
-
-echo "  Detected memory: ${MEM_GB} GB"
-
-if [ "$MEM_GB" -lt 32 ]; then
-  echo ""
-  echo "  ERROR: For the model to run you need at least 33 GB of memory, you have only ${MEM_GB} GB."
-  exit 1
-elif [ "$MEM_GB" -lt 63 ]; then
-  echo ""
-  echo "  WARNING: Recommended memory is 63 GB for optimal performance."
-  echo "  You have ${MEM_GB} GB."
-  echo ""
-  read -r -p "  Do you really want to continue? [y/N] " MEM_ANSWER
-  case "$MEM_ANSWER" in
-    [yY][eE][sS]|[yY])
-      echo "  Continuing with installation..."
-      ;;
-    *)
-      echo "  Installation cancelled."
-      exit 1
-      ;;
-  esac
-fi
-
-echo ""
 
 # Function to compare two version strings (returns 0 if v1 >= v2)
 version_ge() {
