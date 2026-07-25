@@ -90,11 +90,13 @@ OMLX_APP="/Applications/oMLX.app"
 OMLX_MIN_VERSION="0.5.2"
 OMLX_TARGET_VERSION="0.5.3"
 
-# Model archives and their MD5 checksums (tab-separated)
+# Model archives, their MD5 checksums, and corresponding oMLX model IDs
 MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
 MODEL_MD5_1="5ccc3a1cc4f09f91343a510a8704b02d"
+MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
 MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
 MODEL_MD5_2="5788dcff30df52fc90b65c0c9fc514db"
+MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 
 echo "=== Junie Local Model Installer ==="
 echo ""
@@ -327,18 +329,35 @@ download_and_verify() {
   echo "  Checksum verified: $actual"
 }
 
-# Download and verify model archives
-download_and_verify "$MODEL_ZIP_1" "$MODEL_MD5_1"
-download_and_verify "$MODEL_ZIP_2" "$MODEL_MD5_2"
+# Check if a model ID is present in the OMLX_MODELS list
+model_installed() {
+  model_id="$1"
+  echo "$OMLX_MODELS" | grep -qx "$model_id"
+}
 
-# Extract model archives to models directory
-echo "Extracting $MODEL_ZIP_1 to $MODELS_DIR..."
-unzip -q "$DOWNLOAD_DIR/$MODEL_ZIP_1" -d "$MODELS_DIR"
-echo "  Extraction complete."
+# Download and install each model only if not already present in oMLX
+install_model_if_needed() {
+  zip_file="$1"
+  md5_sum="$2"
+  model_id="$3"
 
-echo "Extracting $MODEL_ZIP_2 to $MODELS_DIR..."
-unzip -q "$DOWNLOAD_DIR/$MODEL_ZIP_2" -d "$MODELS_DIR"
-echo "  Extraction complete."
+  if model_installed "$model_id"; then
+    echo "  Model $model_id is already installed. Skipping."
+    echo ""
+    return 0
+  fi
+
+  echo "  Model $model_id is not installed. Proceeding..."
+  echo ""
+  download_and_verify "$zip_file" "$md5_sum"
+  echo "Extracting $zip_file to $MODELS_DIR..."
+  unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
+  echo "  Extraction complete."
+  echo ""
+}
+
+install_model_if_needed "$MODEL_ZIP_1" "$MODEL_MD5_1" "$MODEL_ID_1"
+install_model_if_needed "$MODEL_ZIP_2" "$MODEL_MD5_2" "$MODEL_ID_2"
 
 # Cleanup model downloads
 echo "Removing downloaded archives..."
