@@ -1,6 +1,21 @@
 #!/bin/sh
 set -e
 
+# ============================================================
+# Platform check: must be macOS 26+
+# ============================================================
+UNAME_OUT=$(uname -s)
+if [ "$UNAME_OUT" != "Darwin" ]; then
+  echo "ERROR: This script requires macOS. Detected OS: $UNAME_OUT"
+  exit 1
+fi
+
+OS_VERSION=$(sw_vers -productVersion | cut -d '.' -f 1)
+if [ "$OS_VERSION" -lt 26 ]; then
+  echo "ERROR: macOS 26 or higher is required. Detected version: $(sw_vers -productVersion)"
+  exit 1
+fi
+
 # Configuration
 BASE_URL="https://junie-local.erokhins.com"
 BASE_DIR="$HOME/.local/share/junie-local"
