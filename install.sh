@@ -138,6 +138,20 @@ version_ge() {
   [ "$v1" = "$highest" ]
 }
 
+# Function to restart oMLX server to load new settings
+restart_omlx() {
+  OMLX_CLI="/Applications/oMLX.app/Contents/MacOS/omlx-cli"
+  if [ ! -x "$OMLX_CLI" ]; then
+    echo "  WARNING: omlx-cli not found at $OMLX_CLI"
+    echo "  Please restart oMLX manually to apply settings."
+    return 1
+  fi
+  echo "  Restarting oMLX server..."
+  "$OMLX_CLI" restart
+  echo "  oMLX server restarted."
+  return 0
+}
+
 # Function to configure model settings for Qwen3.6-27B-4bit
 configure_model_settings() {
   MODEL_SETTINGS_FILE="$HOME/.omlx/model_settings.json"
@@ -427,6 +441,7 @@ echo "=== Configuring oMLX ==="
 echo ""
 configure_omlx_models_dir
 configure_model_settings
+restart_omlx
 
 echo ""
 echo "=== Installation complete ==="
