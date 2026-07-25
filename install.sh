@@ -11,6 +11,9 @@ DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
 OMLX_FILE="oMLX-0.5.3-macos26-27.dmg"
 OMLX_SHA256="15a2a74e20bf4518d6f6133af4ecc0f3e4c6610f3127c1612ae6178ef749a4c8"
+OMLX_APP="/Applications/oMLX.app"
+OMLX_MIN_VERSION="0.5.2"
+OMLX_TARGET_VERSION="0.5.3"
 
 # Model archives and their MD5 checksums (tab-separated)
 MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
@@ -46,6 +49,87 @@ echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 
+# Function to compare two version strings (returns 0 if v1 >= v2)
+version_ge() {
+  v1="$1"
+  v2="$2"
+  if [ "$v1" = "$v2" ]; then
+    return 0
+  fi
+  # Use sort -V to compare versions
+  highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
+  [ "$v1" = "$highest" ]
+}
+
+# ============================================================
+# Step 1: Check and install oMLX (must happen before models)
+# ============================================================
+echo "=== Checking oMLX installation ==="
+echo ""
+
+if [ -d "$OMLX_APP" ]; then
+  # Extract installed version from CFBundleShortVersionString
+  INSTALLED_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$OMLX_APP/Contents/Info.plist" 2>/dev/null || echo "unknown")
+  echo "  oMLX is already installed at $OMLX_APP"
+  echo "  Installed version: $INSTALLED_VERSION"
+
+  if [ "$INSTALLED_VERSION" = "unknown" ]; then
+    echo "  WARNING: Could not determine installed version."
+    echo "  Proceeding with update to version $OMLX_TARGET_VERSION."
+    SKIP_OMLX=false
+  elif version_ge "$INSTALLED_VERSION" "$OMLX_MIN_VERSION"; then
+    echo "  Version $INSTALLED_VERSION meets minimum requirement ($OMLX_MIN_VERSION)."
+    echo "  Skipping oMLX installation."
+    SKIP_OMLX=true
+  else
+    echo "  Version $INSTALLED_VERSION is below minimum requirement ($OMLX_MIN_VERSION)."
+    echo "  Proceeding with update to version $OMLX_TARGET_VERSION."
+    SKIP_OMLX=false
+  fi
+else
+  echo "  oMLX is not installed."
+  echo "  Proceeding with installation of version $OMLX_TARGET_VERSION."
+  SKIP_OMLX=false
+fi
+
+echo ""
+
+if [ "$SKIP_OMLX" = false ]; then
+  # Download and install oMLX DMG
+  echo "Downloading $OMLX_FILE..."
+  curl -SL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
+  echo "  Download complete."
+
+  # Verify SHA256 checksum
+  actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$OMLX_FILE" | awk '{print $1}')
+  if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
+    echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
+    echo "    Expected: $OMLX_SHA256"
+    echo "    Actual:   $actual_sha256"
+    exit 1
+  fi
+  echo "  SHA256 verified: $actual_sha256"
+
+  # Mount and open oMLX DMG
+  echo "Opening oMLX DMG..."
+  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" > /dev/null 2>&1
+  MOUNT_POINT=$(ls /Volumes/ | grep "^oMLX" | head -1)
+  MOUNT_POINT="/Volumes/$MOUNT_POINT"
+  open "$MOUNT_POINT"
+  echo ""
+  echo "  Drag the oMLX.app into the Applications folder."
+  echo ""
+
+  # Clean up oMLX download
+  rm -f "$DOWNLOAD_DIR/$OMLX_FILE"
+fi
+
+# ============================================================
+# Step 2: Download and install models
+# ============================================================
+echo "=== Installing models ==="
+echo ""
+
 # Function to download and verify a model archive
 download_and_verify() {
   archive="$1"
@@ -78,32 +162,7 @@ echo "Extracting $MODEL_ZIP_2 to $MODELS_DIR..."
 unzip -q "$DOWNLOAD_DIR/$MODEL_ZIP_2" -d "$MODELS_DIR"
 echo "  Extraction complete."
 
-# Download and install oMLX DMG
-echo ""
-echo "Downloading $OMLX_FILE..."
-curl -SL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
-echo "  Download complete."
-
-# Verify SHA256 checksum
-actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$OMLX_FILE" | awk '{print $1}')
-if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
-  echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
-  echo "    Expected: $OMLX_SHA256"
-  echo "    Actual:   $actual_sha256"
-exit 1
-fi
-echo "  SHA256 verified: $actual_sha256"
-
-# Mount and open oMLX DMG
-echo "Opening oMLX DMG..."
-hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" > /dev/null 2>&1
-MOUNT_POINT=$(ls /Volumes/ | grep "^oMLX" | head -1)
-MOUNT_POINT="/Volumes/$MOUNT_POINT"
-open "$MOUNT_POINT"
-echo ""
-echo "  Drag the oMLX.app into the Applications folder."
-
-# Cleanup downloads
+# Cleanup model downloads
 echo "Removing downloaded archives..."
 rm -rf "$DOWNLOAD_DIR"
 
@@ -111,5 +170,9 @@ echo ""
 echo "=== Installation complete ==="
 echo "Models installed to: $MODELS_DIR"
 ls -la "$MODELS_DIR"
-echo ""
-echo "oMLX DMG mounted — please drag oMLX.app to /Applications/"
+
+if [ "$SKIP_OMLX" = true ]; then
+  echo "oMLX is already installed at $OMLX_APP (version $INSTALLED_VERSION)"
+else
+  echo "oMLX DMG mounted — please drag oMLX.app to /Applications/"
+fi
