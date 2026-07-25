@@ -98,6 +98,11 @@ MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
 MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 
+# oMLX cache configuration (default: 35 GB total RAM for oMLX)
+OMLX_RAM_GB="${1:-35}"
+OMLX_SSD_CACHE_MAX="50GB"
+OMLX_HOT_CACHE_MAX="$((OMLX_RAM_GB - 17))GB"
+
 # Junie model configuration
 # TODO: calculate it
 JUNIE_MAX_CONTEXT_LENGTH=90000
@@ -140,6 +145,23 @@ version_ge() {
   # Use sort -V to compare versions
   highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
   [ "$v1" = "$highest" ]
+}
+
+# Function to configure oMLX cache settings
+configure_omlx_cache() {
+  SETTINGS_FILE="$HOME/.omlx/settings.json"
+
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
+    echo "  Skipping cache configuration."
+    return 1
+  fi
+
+  echo "  Configuring oMLX cache (hot: $OMLX_HOT_CACHE_MAX, SSD: $OMLX_SSD_CACHE_MAX)..."
+  plutil -replace "cache.hot_cache_max_size" -string "$OMLX_HOT_CACHE_MAX" "$SETTINGS_FILE"
+  plutil -replace "cache.ssd_cache_max_size" -string "$OMLX_SSD_CACHE_MAX" "$SETTINGS_FILE"
+  echo "  Cache configuration updated."
+  return 0
 }
 
 # Function to create Junie model config file
@@ -491,6 +513,7 @@ echo "=== Configuring oMLX ==="
 echo ""
 configure_omlx_models_dir
 configure_model_settings
+configure_omlx_cache
 restart_omlx
 create_junie_model_config
 
