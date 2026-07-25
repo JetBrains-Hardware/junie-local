@@ -16,6 +16,31 @@ if [ "$OS_VERSION" -lt 26 ]; then
   exit 1
 fi
 
+# ============================================================
+# CPU check: M4 or M5 recommended
+# ============================================================
+CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")
+case "$CPU_MODEL" in
+  *M4*|*M5*)
+    echo "  Detected processor: $CPU_MODEL (compatible)"
+    ;;
+  *)
+    echo "  WARNING: Apple M4 or M5 processor is recommended for optimal performance."
+    echo "  Detected processor: $CPU_MODEL"
+    echo ""
+    read -r -p "  Do you really want to continue? [y/N] " CPU_ANSWER
+    case "$CPU_ANSWER" in
+      [yY][eE][sS]|[yY])
+        echo "  Continuing with installation..."
+        ;;
+      *)
+        echo "  Installation cancelled."
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+
 # Configuration
 BASE_URL="https://junie-local.erokhins.com"
 BASE_DIR="$HOME/.local/share/junie-local"
