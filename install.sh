@@ -519,11 +519,12 @@ create_junie_model_config
 
 echo ""
 echo "=== Installation complete ==="
-echo "Models installed to: $MODELS_DIR"
-ls -la "$MODELS_DIR"
-
-if [ "$SKIP_OMLX" = true ]; then
-  echo "oMLX is already installed at $OMLX_APP (version $INSTALLED_VERSION)"
-else
-  echo "oMLX DMG mounted — please drag oMLX.app to /Applications/"
-fi
+echo ""
+echo "  Models installed to: $MODELS_DIR"
+echo "  oMLX SSD cache: $OMLX_SSD_CACHE_MAX"
+echo "  oMLX hot cache: $OMLX_HOT_CACHE_MAX"
+echo "  Model memory: ~17 GB"
+echo "  Total oMLX memory: ${OMLX_RAM_GB}GB"
+echo ""
+echo "  Now you can use your local model in Junie:"
+echo "  Use /models command and choose local-qwen3.6-27b-4bit"
