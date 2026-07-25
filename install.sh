@@ -23,13 +23,23 @@ echo ""
 
 # Cleanup function — kills child processes on interrupt
 cleanup() {
+  exit_code="$1"
+
+  # Avoid executing this trap recursively.
+  trap - INT TERM
+
   echo ""
   echo "Interrupted — partial downloads preserved in $DOWNLOAD_DIR"
   echo "Re-run this script to resume."
+
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
+
+  exit "$exit_code"
 }
-trap cleanup INT TERM
+
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 
 # Create directories
 echo "Creating directories..."
