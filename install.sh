@@ -138,6 +138,31 @@ version_ge() {
   [ "$v1" = "$highest" ]
 }
 
+# Function to configure model settings for Qwen3.6-27B-4bit
+configure_model_settings() {
+  MODEL_SETTINGS_FILE="$HOME/.omlx/model_settings.json"
+  MODEL_ID="mlx-community--Qwen3.6-27B-4bit"
+  KEY_PATH="models.mlx-community--Qwen3\.6-27B-4bit"
+
+  if [ ! -f "$MODEL_SETTINGS_FILE" ]; then
+    echo "  Creating model_settings.json at $MODEL_SETTINGS_FILE..."
+    echo '{"version": 1, "models": {}}' > "$MODEL_SETTINGS_FILE"
+  fi
+
+  # Check if model config already exists
+  EXISTING=$(plutil -extract "$KEY_PATH" json -o - "$MODEL_SETTINGS_FILE" 2>/dev/null || true)
+  if [ -n "$EXISTING" ]; then
+    echo "  Model settings for $MODEL_ID already configured."
+    return 0
+  fi
+
+  # Write the model configuration
+  echo "  Configuring model settings for $MODEL_ID..."
+  plutil -insert "$KEY_PATH" -json '{"force_sampling":false,"enable_thinking":false,"thinking_budget_enabled":false,"guided_grammar_enabled":false,"turboquant_kv_enabled":false,"turboquant_kv_bits":4.0,"turboquant_skip_last":true,"specprefill_enabled":false,"dflash_enabled":false,"dflash_draft_quant_enabled":false,"dflash_in_memory_cache":true,"dflash_in_memory_cache_max_entries":4,"dflash_in_memory_cache_max_bytes":8589934592,"dflash_ssd_cache":false,"dflash_ssd_cache_max_bytes":21474836480,"mtp_enabled":false,"vlm_mtp_enabled":true,"vlm_mtp_draft_model":"mlx-community--Qwen3.6-27B-MTP-4bit","vlm_mtp_draft_block_size":4,"is_pinned":false,"is_default":false,"is_hidden":false,"is_favorite":false,"trust_remote_code":false}' -r "$MODEL_SETTINGS_FILE"
+  echo "  Model settings for $MODEL_ID configured."
+  return 0
+}
+
 # Function to add MODELS_DIR to oMLX model_dirs if not already present
 configure_omlx_models_dir() {
   SETTINGS_FILE="$HOME/.omlx/settings.json"
@@ -396,11 +421,12 @@ echo "Removing downloaded archives..."
 rm -rf "$DOWNLOAD_DIR"
 
 # ============================================================
-# Step 3: Configure oMLX to include our models directory
+# Step 3: Configure oMLX
 # ============================================================
 echo "=== Configuring oMLX ==="
 echo ""
 configure_omlx_models_dir
+configure_model_settings
 
 echo ""
 echo "=== Installation complete ==="
