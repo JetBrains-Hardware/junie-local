@@ -90,12 +90,12 @@ OMLX_APP="/Applications/oMLX.app"
 OMLX_MIN_VERSION="0.5.2"
 OMLX_TARGET_VERSION="0.5.3"
 
-# Model archives, their MD5 checksums, and corresponding oMLX model IDs
+# Model archives, their SHA256 checksums, and corresponding oMLX model IDs
 MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
-MODEL_MD5_1="5ccc3a1cc4f09f91343a510a8704b02d"
+MODEL_SHA256_1="adf7f8d832ed994dcc6d09372036b4d12f49a4ccda066179cc64dc2dd113f91d"
 MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
 MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
-MODEL_MD5_2="5788dcff30df52fc90b65c0c9fc514db"
+MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 
 echo "=== Junie Local Model Installer ==="
@@ -313,20 +313,20 @@ echo ""
 # Function to download and verify a model archive
 download_and_verify() {
   archive="$1"
-  expected_md5="$2"
+  expected_sha256="$2"
 
   echo "Downloading $archive..."
   curl -SL -C - -o "$DOWNLOAD_DIR/$archive" "$BASE_URL/$archive"
   echo "  Download complete."
 
-  actual=$(md5 -q "$DOWNLOAD_DIR/$archive")
-  if [ "$actual" != "$expected_md5" ]; then
-    echo "  ERROR: Checksum mismatch for $archive"
-    echo "    Expected: $expected_md5"
+  actual=$(shasum -a 256 "$DOWNLOAD_DIR/$archive" | awk '{print $1}')
+  if [ "$actual" != "$expected_sha256" ]; then
+    echo "  ERROR: SHA256 mismatch for $archive"
+    echo "    Expected: $expected_sha256"
     echo "    Actual:   $actual"
     exit 1
   fi
-  echo "  Checksum verified: $actual"
+  echo "  SHA256 verified: $actual"
 }
 
 # Check if a model ID is present in the OMLX_MODELS list
@@ -338,7 +338,7 @@ model_installed() {
 # Download and install each model only if not already present in oMLX
 install_model_if_needed() {
   zip_file="$1"
-  md5_sum="$2"
+  sha256_sum="$2"
   model_id="$3"
 
   if model_installed "$model_id"; then
@@ -349,15 +349,15 @@ install_model_if_needed() {
 
   echo "  Model $model_id is not installed. Proceeding..."
   echo ""
-  download_and_verify "$zip_file" "$md5_sum"
+  download_and_verify "$zip_file" "$sha256_sum"
   echo "Extracting $zip_file to $MODELS_DIR..."
   unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
   echo "  Extraction complete."
   echo ""
 }
 
-install_model_if_needed "$MODEL_ZIP_1" "$MODEL_MD5_1" "$MODEL_ID_1"
-install_model_if_needed "$MODEL_ZIP_2" "$MODEL_MD5_2" "$MODEL_ID_2"
+install_model_if_needed "$MODEL_ZIP_1" "$MODEL_SHA256_1" "$MODEL_ID_1"
+install_model_if_needed "$MODEL_ZIP_2" "$MODEL_SHA256_2" "$MODEL_ID_2"
 
 # Cleanup model downloads
 echo "Removing downloaded archives..."
