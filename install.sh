@@ -135,6 +135,33 @@ echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 
+# Function to download a file with retry logic and exponential backoff
+# Usage: download_with_retry <url> <output_file> [max_retries]
+download_with_retry() {
+  url="$1"
+  output_file="$2"
+  max_retries="${3:-3}"
+  attempt=1
+  delay=2
+
+  while [ "$attempt" -le "$max_retries" ]; do
+    echo "  Attempt $attempt of $max_retries..."
+    if curl -SL -C - -o "$output_file" "$url" 2>/dev/null; then
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$max_retries" ]; then
+      echo "  Download failed. Retrying in ${delay}s..."
+      sleep "$delay"
+      delay=$((delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "  ERROR: Download failed after $max_retries attempts."
+  return 1
+}
+
 # Function to compare two version strings (returns 0 if v1 >= v2)
 version_ge() {
   v1="$1"
@@ -373,7 +400,7 @@ echo ""
 if [ "$SKIP_OMLX" = false ]; then
   # Download and install oMLX DMG
   echo "Downloading $OMLX_FILE..."
-  curl -SL -C - -o "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_URL"
+  download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE"
   echo "  Download complete."
 
   # Verify SHA256 checksum
@@ -459,7 +486,7 @@ download_and_verify() {
   expected_sha256="$2"
 
   echo "Downloading $archive..."
-  curl -SL -C - -o "$DOWNLOAD_DIR/$archive" "$BASE_URL/$archive"
+  download_with_retry "$BASE_URL/$archive" "$DOWNLOAD_DIR/$archive"
   echo "  Download complete."
 
   actual=$(shasum -a 256 "$DOWNLOAD_DIR/$archive" | awk '{print $1}')
