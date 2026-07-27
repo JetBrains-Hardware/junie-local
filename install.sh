@@ -146,7 +146,7 @@ download_with_retry() {
 
   while [ "$attempt" -le "$max_retries" ]; do
     echo "  Attempt $attempt of $max_retries..."
-    if curl -SL -C - -o "$output_file" "$url" 2>/dev/null; then
+    if curl --progress-bar -SL -C - -o "$output_file" "$url"; then
       return 0
     fi
 
