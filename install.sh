@@ -1,80 +1,149 @@
 #!/bin/sh
 set -e
 
+# Helper: wait for user to press any key, then exit
+wait_and_exit() {
+  echo ""
+  echo "Press any key to exit..."
+  read -r -n 1
+  exit "$1"
+}
+
 # ============================================================
-# Platform check: must be macOS 26+
+# Collect system information
 # ============================================================
+
+# OS detection
 UNAME_OUT=$(uname -s)
-if [ "$UNAME_OUT" != "Darwin" ]; then
-  echo "ERROR: This script requires macOS. Detected OS: $UNAME_OUT"
-  exit 1
-fi
+OS_FULL_VERSION=$(sw_vers -productVersion 2>/dev/null || echo "unknown")
+OS_VERSION=$(echo "$OS_FULL_VERSION" | cut -d '.' -f 1)
 
-OS_VERSION=$(sw_vers -productVersion | cut -d '.' -f 1)
-if [ "$OS_VERSION" -lt 26 ]; then
-  echo "ERROR: macOS 26 or higher is required. Detected version: $(sw_vers -productVersion)"
-  exit 1
-fi
+# CPU model
+CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")
 
-# ============================================================
-# CPU check: M4 or M5 recommended
-# ============================================================
-CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")
-case "$CPU_MODEL" in
-  *M4*|*M5*)
-    echo "  Detected processor: $CPU_MODEL (compatible)"
-    ;;
-  *)
-    echo "  WARNING: Apple M4 or M5 processor is recommended for optimal performance."
-    echo "  Detected processor: $CPU_MODEL"
-    echo ""
-    read -r -p "  Do you really want to continue? [y/N] " CPU_ANSWER
-    case "$CPU_ANSWER" in
-      [yY][eE][sS]|[yY])
-        echo "  Continuing with installation..."
-        ;;
-      *)
-        echo "  Installation cancelled."
-        exit 1
-        ;;
-    esac
-    ;;
-esac
-
-# ============================================================
-# System requirements check: memory
-# ============================================================
-echo "=== Checking system requirements ==="
-echo ""
-
-# Get total memory in bytes from sysctl, then convert to GB
+# Total memory in GB
 MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
 MEM_GB=$((MEM_BYTES / 1073741824))
 
-echo "  Detected memory: ${MEM_GB} GB"
+# Find first free port starting from 8000
+check_port_free() {
+  # Uses nc (netcat) to test if a port is listening
+  # Returns 0 if free, 1 if in use
+  ! nc -z localhost "$1" 2>/dev/null
+}
 
-if [ "$MEM_GB" -lt 32 ]; then
-  echo ""
-  echo "  ERROR: For the model to run you need at least 33 GB of memory, you have only ${MEM_GB} GB."
-  exit 1
-elif [ "$MEM_GB" -lt 63 ]; then
-  echo ""
-  echo "  WARNING: Recommended memory is 63 GB for optimal performance."
-  echo "  You have ${MEM_GB} GB."
-  echo ""
-  read -r -p "  Do you really want to continue? [y/N] " MEM_ANSWER
-  case "$MEM_ANSWER" in
-    [yY][eE][sS]|[yY])
-      echo "  Continuing with installation..."
-      ;;
-    *)
-      echo "  Installation cancelled."
-      exit 1
-      ;;
-  esac
+PORT_CANDIDATE=8000
+while [ "$PORT_CANDIDATE" -lt 9000 ]; do
+  if check_port_free "$PORT_CANDIDATE"; then
+    break
+  fi
+  PORT_CANDIDATE=$((PORT_CANDIDATE + 1))
+done
+
+# ============================================================
+# System info summary: evaluate & display
+# ============================================================
+echo "=== Junie Local Model Installer ==="
+echo ""
+echo "=== System Information ==="
+echo ""
+
+# ANSI color helpers
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# Helper: print a value in green if ok, yellow if warning, red if not ok
+print_value() {
+  label="$1"
+  value="$2"
+  ok="$3"
+  warn="$4"
+  requirement="$5"
+  if [ "$ok" = true ] && [ "$warn" = false ]; then
+    printf "  %-20s ${GREEN}%s${NC}\n" "$label" "$value"
+  elif [ "$warn" = true ]; then
+    printf "  %-20s ${YELLOW}%s${NC}  (%s)\n" "$label" "$value" "$requirement"
+  else
+    printf "  %-20s ${RED}%s${NC}  (requirement: %s)\n" "$label" "$value" "$requirement"
+  fi
+}
+
+ALL_OK=true
+
+# OS check (hard requirement: macOS 26+)
+OS_OK=true
+if [ "$UNAME_OUT" != "Darwin" ]; then
+  OS_OK=false
+  ALL_OK=false
+elif [ "$OS_VERSION" -lt 26 ]; then
+  OS_OK=false
+  ALL_OK=false
+fi
+print_value "OS:" "$UNAME_OUT $OS_FULL_VERSION" "$OS_OK" false "macOS 26 or higher"
+echo ""
+
+# CPU check (hard: Apple Silicon, recommended: M4 or M5)
+CPU_OK=true
+CPU_WARN=false
+case "$CPU_MODEL" in
+  *M4*|*M5*)
+    # Fully recommended
+    ;;
+  *M*)
+    # Has Apple Silicon but not M4/M5 — acceptable with warning
+    CPU_WARN=true
+    ;;
+  *)
+    # No Apple Silicon — hard fail
+    CPU_OK=false
+    ALL_OK=false
+    ;;
+esac
+print_value "CPU:" "$CPU_MODEL" "$CPU_OK" "$CPU_WARN" "M4 or M5 recommended"
+echo ""
+
+# RAM check (hard: >= 40 GB, recommended: >= 60 GB)
+RAM_OK=true
+RAM_WARN=false
+if [ "$MEM_GB" -lt 40 ]; then
+  RAM_OK=false
+  ALL_OK=false
+elif [ "$MEM_GB" -lt 60 ]; then
+  RAM_WARN=true
+fi
+print_value "RAM:" "${MEM_GB} GB" "$RAM_OK" "$RAM_WARN" "minimum 40 GB, 60 GB recommended"
+echo ""
+
+# Port check (informational)
+PORT_OK=true
+if [ "$PORT_CANDIDATE" -ge 9000 ]; then
+  PORT_OK=false
+  PORT_CANDIDATE="none"
+fi
+print_value "Free port:" "$PORT_CANDIDATE" "$PORT_OK" false "port 8000-8999 available"
+echo ""
+
+# ============================================================
+# Decision: proceed or exit
+# ============================================================
+if [ "$ALL_OK" = false ]; then
+  echo "Some system requirements are not met. Installation cannot proceed."
+  wait_and_exit 1
 fi
 
-echo ""
+# All hard requirements met — ask user to confirm
+read -r -p "Do you want to continue? [Y/n] " CONTINUE_ANSWER
+case "$CONTINUE_ANSWER" in
+  [nN]|[nN][oO])
+    echo "Installation cancelled."
+    wait_and_exit 1
+    ;;
+  *)
+    echo ""
+    ;;
+esac
 
 # Configuration
 BASE_URL="https://junie-local.erokhins.com"
@@ -107,8 +176,6 @@ OMLX_HOT_CACHE_MAX="$((OMLX_RAM_GB - 17))GB"
 # TODO: calculate it
 JUNIE_MAX_CONTEXT_LENGTH=90000
 
-echo "=== Junie Local Model Installer ==="
-echo ""
 
 # Cleanup function — kills child processes on interrupt
 cleanup() {
@@ -124,7 +191,7 @@ cleanup() {
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
 
-  exit "$exit_code"
+  wait_and_exit "$exit_code"
 }
 
 trap 'cleanup 130' INT
@@ -409,7 +476,7 @@ if [ "$SKIP_OMLX" = false ]; then
     echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
     echo "    Expected: $OMLX_SHA256"
     echo "    Actual:   $actual_sha256"
-    exit 1
+    wait_and_exit 1
   fi
   echo "  SHA256 verified: $actual_sha256"
 
@@ -460,7 +527,7 @@ if [ "$OMLX_CONNECTED" = false ]; then
   echo ""
   echo "  ERROR: Could not connect to oMLX after $MAX_RETRIES attempts."
   echo "  Please start oMLX and try running this script again."
-  exit 1
+  wait_and_exit 1
 fi
 
 echo ""
@@ -494,7 +561,7 @@ download_and_verify() {
     echo "  ERROR: SHA256 mismatch for $archive"
     echo "    Expected: $expected_sha256"
     echo "    Actual:   $actual"
-    exit 1
+    wait_and_exit 1
   fi
   echo "  SHA256 verified: $actual"
 }
@@ -555,3 +622,4 @@ echo "  Total oMLX memory: ${OMLX_RAM_GB}GB"
 echo ""
 echo "  Now you can use your local model in Junie:"
 echo "  Use /models command and choose local-qwen3.6-27b-4bit"
+wait_and_exit 0
