@@ -161,25 +161,27 @@ fi
 print_value "RAM:" "${MEM_GB} GB" "$RAM_OK" "$RAM_WARN" "minimum 40 GB, 60 GB recommended"
 echo ""
 
-# Port check (informational)
-PORT_OK=true
-if [ "$PORT_CANDIDATE" -ge 9000 ]; then
-  PORT_OK=false
-  PORT_CANDIDATE="none"
-fi
-print_value "Free port:" "$PORT_CANDIDATE" "$PORT_OK" false "port 8000-8999 available"
-echo ""
+# RAM allowance for inference (weights + KV cache)
+OMLX_MODEL_RAM_GB="${1:-35}"
 
-# oMLX status
+# oMLX status — in System Information if installed, in Install Configuration if not
 if [ "$OMLX_INSTALLED" = true ]; then
   if [ "$OMLX_NEEDS_UPDATE" = true ]; then
     print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true true "will be updated to v${OMLX_TARGET_VERSION}"
   else
     print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true false ""
   fi
-else
+fi
+echo ""
+
+# Install Configuration section
+echo "=== Install Configuration ==="
+echo ""
+
+if [ "$OMLX_INSTALLED" = false ]; then
   print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
 fi
+print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
 echo ""
 
 # ============================================================
@@ -191,11 +193,37 @@ if [ "$ALL_OK" = false ]; then
 fi
 
 # All hard requirements met — ask user to confirm
-read -r -p "Do you want to continue? [Y/n] " CONTINUE_ANSWER
+read -r -p "Do you want to continue with these settings? [Y/n] " CONTINUE_ANSWER
 case "$CONTINUE_ANSWER" in
   [nN]|[nN][oO])
-    echo "Installation cancelled."
-    wait_and_exit 1
+    echo ""
+    echo "You can customize the configuration."
+    echo ""
+    if [ "$OMLX_INSTALLED" = false ]; then
+      read -r -p "Port [${PORT_CANDIDATE}]: " CUSTOM_PORT
+      CUSTOM_PORT="${CUSTOM_PORT:-$PORT_CANDIDATE}"
+      PORT_CANDIDATE="$CUSTOM_PORT"
+    fi
+    read -r -p "RAM allowance (GB) [${OMLX_MODEL_RAM_GB}]: " CUSTOM_RAM
+    CUSTOM_RAM="${CUSTOM_RAM:-$OMLX_MODEL_RAM_GB}"
+    OMLX_MODEL_RAM_GB="$CUSTOM_RAM"
+    echo ""
+    echo "Updated configuration:"
+    if [ "$OMLX_INSTALLED" = false ]; then
+      print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
+    fi
+    print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
+    echo ""
+    read -r -p "Proceed with these settings? [Y/n] " FINAL_ANSWER
+    case "$FINAL_ANSWER" in
+      [nN]|[nN][oO])
+        echo "Installation cancelled."
+        wait_and_exit 1
+        ;;
+      *)
+        echo ""
+        ;;
+    esac
     ;;
   *)
     echo ""
