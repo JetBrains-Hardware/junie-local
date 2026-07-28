@@ -11,13 +11,19 @@ Local inference support for Junie on macOS. This repository provides an automate
 
 ## Quick Install
 
-Run the installer directly from your terminal:
+### Running from Junie
+
+The installer is designed to be run with `sh` from within Junie. No parameters are passed from Junie — all user interaction and logic is handled inside the script itself.
+
+### Running Manually
+
+You can also run the installer directly from your terminal:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh | zsh
 ```
 
-### Memory Parameter
+#### Memory Parameter
 
 By default, the script allocates **35 GB** of RAM to oMLX. You can adjust this by passing the desired value as the first argument:
 
@@ -26,6 +32,10 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 ```
 
 This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches).
+
+### Note on Terminal Behavior
+
+When the script is run from Junie, the terminal window will close automatically when the script completes. The script displays a "press any key to exit" message at the end of every exit path to give you time to read the final output.
 
 ## What Gets Installed
 
