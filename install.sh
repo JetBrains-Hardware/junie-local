@@ -178,9 +178,12 @@ echo ""
 OMLX_MODEL_RAM_GB="${1:-35}"
 
 # oMLX status — in System Information if installed, in Install Configuration if not
+# An installed oMLX older than the minimum version is a hard failure:
+# the user must update it manually before re-running the installer.
 if [ "$OMLX_INSTALLED" = true ]; then
   if [ "$OMLX_NEEDS_UPDATE" = true ]; then
-    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true true "will be updated to v${OMLX_TARGET_VERSION}"
+    ALL_OK=false
+    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" false false "v${OMLX_MIN_VERSION} or higher — please update oMLX manually and re-run"
   else
     print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true false ""
   fi
@@ -262,10 +265,9 @@ MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
 MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 
-# oMLX cache configuration (default: 35 GB total RAM for oMLX)
-OMLX_RAM_GB="${1:-35}"
+# oMLX cache configuration (derived from the RAM allowance, default 35 GB)
 OMLX_SSD_CACHE_MAX="50GB"
-OMLX_HOT_CACHE_MAX="$((OMLX_RAM_GB - 17))GB"
+OMLX_HOT_CACHE_MAX="$((OMLX_MODEL_RAM_GB - 17))GB"
 
 # Junie model configuration
 JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
@@ -595,17 +597,12 @@ install_omlx() {
   echo ""
 }
 
-if [ "$OMLX_INSTALLED" = true ] && [ "$OMLX_NEEDS_UPDATE" = false ]; then
-  # Path A: Reuse existing oMLX
+if [ "$OMLX_INSTALLED" = true ]; then
+  # Reuse existing oMLX (an outdated version already failed the system check above)
   echo "  Reusing existing oMLX v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}."
   echo ""
-elif [ "$OMLX_INSTALLED" = true ] && [ "$OMLX_NEEDS_UPDATE" = true ]; then
-  # Path B: Update existing oMLX
-  echo "  Updating oMLX from v${OMLX_EXISTING_VERSION} to v${OMLX_TARGET_VERSION}..."
-  echo ""
-  install_omlx
 else
-  # Path C: Fresh install
+  # Fresh install
   echo "  Installing oMLX v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}..."
   echo ""
   install_omlx
@@ -691,7 +688,7 @@ echo "  Models installed to: $MODELS_DIR"
 echo "  oMLX SSD cache: $OMLX_SSD_CACHE_MAX"
 echo "  oMLX hot cache: $OMLX_HOT_CACHE_MAX"
 echo "  Model memory: ~17 GB"
-echo "  Total oMLX memory: ${OMLX_RAM_GB}GB"
+echo "  Total oMLX memory: ${OMLX_MODEL_RAM_GB}GB"
 echo ""
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
