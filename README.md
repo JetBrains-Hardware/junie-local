@@ -20,8 +20,7 @@ The installer is designed to be run with `sh` from within Junie. No parameters a
 The installer is interactive (it asks for confirmation and lets you customize the port and RAM allowance), so it needs a terminal. Download it first, then run it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh
-sh /tmp/junie-local-install.sh
+curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh && sh /tmp/junie-local-install.sh
 ```
 
 #### Memory Parameter
@@ -29,7 +28,7 @@ sh /tmp/junie-local-install.sh
 By default, the script allocates **35 GB** of RAM to oMLX. You can adjust this by passing the desired value as the first argument:
 
 ```bash
-sh /tmp/junie-local-install.sh 48
+curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh && sh /tmp/junie-local-install.sh 48
 ```
 
 This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches). You can also change the value interactively by answering `n` at the confirmation prompt.
