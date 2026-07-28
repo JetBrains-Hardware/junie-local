@@ -328,6 +328,54 @@ configure_omlx_cache() {
   return 0
 }
 
+# Function to generate a random API key for oMLX
+generate_api_key() {
+  # Generate a random 24-character hex string
+  printf 'sk-omlx-%s' "$(head -c 12 /dev/urandom | xxd -p)"
+}
+
+# Function to create oMLX settings.json for fresh installations
+create_omlx_settings() {
+  SETTINGS_DIR="$HOME/.omlx"
+  SETTINGS_FILE="$SETTINGS_DIR/settings.json"
+
+  if [ -f "$SETTINGS_FILE" ]; then
+    echo "  oMLX settings already exist at $SETTINGS_FILE. Skipping."
+    return 0
+  fi
+
+  # Create .omlx directory if it doesn't exist
+  mkdir -p "$SETTINGS_DIR"
+
+  # Generate a random API key
+  OMLX_API_KEY=$(generate_api_key)
+
+  echo "  Creating oMLX settings at $SETTINGS_FILE..."
+  cat > "$SETTINGS_FILE" <<EOF
+{
+  "server": {
+    "port": $PORT_CANDIDATE
+  },
+  "model": {
+    "model_dirs": [
+      "$HOME/.omlx/models",
+      "$MODELS_DIR"
+    ],
+    "model_dir": "$HOME/.omlx/models"
+  },
+  "cache": {
+    "ssd_cache_max_size": "$OMLX_SSD_CACHE_MAX",
+    "hot_cache_max_size": "$OMLX_HOT_CACHE_MAX"
+  },
+  "auth": {
+    "api_key": "$OMLX_API_KEY"
+  }
+}
+EOF
+  echo "  oMLX settings created."
+  return 0
+}
+
 # Function to create Junie model config file
 create_junie_model_config() {
   JUNIE_MODELS_DIR="$HOME/.junie/models"
@@ -501,6 +549,7 @@ else
   echo "  Installing oMLX v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}..."
   echo ""
   install_omlx
+  create_omlx_settings
 fi
 
 # ============================================================
