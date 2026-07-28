@@ -445,61 +445,6 @@ configure_omlx_models_dir() {
   return 0
 }
 
-# Function to list models available in oMLX
-# Stores result in global OMLX_MODELS variable (newline-separated IDs)
-list_omlx_models() {
-  OMLX_MODELS=""
-  SETTINGS_FILE="$HOME/.omlx/settings.json"
-
-  if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "  ERROR: oMLX settings file not found at $SETTINGS_FILE"
-    return 1
-  fi
-
-  # Read port and API key from settings using plutil
-  OMLX_PORT=$(plutil -extract server.port raw "$SETTINGS_FILE" 2>/dev/null || echo "")
-  OMLX_API_KEY=$(plutil -extract auth.api_key raw "$SETTINGS_FILE" 2>/dev/null || echo "")
-
-  if [ -z "$OMLX_PORT" ] || [ -z "$OMLX_API_KEY" ]; then
-    echo "  ERROR: Could not read port or API key from oMLX settings"
-    return 1
-  fi
-
-  echo "  Connecting to oMLX on localhost:$OMLX_PORT ..."
-
-  # Fetch model list from the API and save to temp file
-  TMP_RESPONSE=$(mktemp)
-  curl -s -H "Authorization: Bearer $OMLX_API_KEY" "http://localhost:$OMLX_PORT/v1/models" -o "$TMP_RESPONSE" 2>/dev/null
-
-  if [ ! -s "$TMP_RESPONSE" ]; then
-    echo "  ERROR: Could not connect to oMLX API"
-    rm -f "$TMP_RESPONSE"
-    return 1
-  fi
-
-  # Use plutil to iterate over the data array and extract IDs
-  # plutil doesn't support counting array elements, so we loop until extraction fails
-  i=0
-  FOUND=0
-  while true; do
-    MODEL_ID=$(plutil -extract "data.$i.id" raw "$TMP_RESPONSE" 2>/dev/null)
-    if [ $? -ne 0 ] || [ -z "$MODEL_ID" ]; then
-      break
-    fi
-    if [ -z "$OMLX_MODELS" ]; then
-      OMLX_MODELS="$MODEL_ID"
-    else
-      OMLX_MODELS="$OMLX_MODELS
-$MODEL_ID"
-    fi
-    FOUND=$((FOUND + 1))
-    i=$((i + 1))
-  done
-
-  rm -f "$TMP_RESPONSE"
-
-  return 0
-}
 
 # ============================================================
 # Step 1: oMLX setup
@@ -559,48 +504,6 @@ else
 fi
 
 # ============================================================
-# Connect to oMLX and fetch model list (with retries)
-# ============================================================
-MAX_RETRIES=3
-RETRY=1
-OMLX_CONNECTED=false
-while [ "$RETRY" -le "$MAX_RETRIES" ]; do
-  if [ "$RETRY" -gt 1 ]; then
-    echo "  Please make sure oMLX is running."
-    read -r -p "  Press Enter to retry (attempt $RETRY of $MAX_RETRIES)..."
-    echo ""
-  fi
-
-  echo "  === Connecting to oMLX (attempt $RETRY of $MAX_RETRIES) ==="
-  if list_omlx_models; then
-    OMLX_CONNECTED=true
-    break
-  fi
-
-  echo ""
-  echo "  Could not connect to oMLX."
-  RETRY=$((RETRY + 1))
-done
-
-if [ "$OMLX_CONNECTED" = false ]; then
-  echo ""
-  echo "  ERROR: Could not connect to oMLX after $MAX_RETRIES attempts."
-  echo "  Please start oMLX and try running this script again."
-  wait_and_exit 1
-fi
-
-echo ""
-if [ -n "$OMLX_MODELS" ]; then
-  echo "  Available models in oMLX:"
-  echo "$OMLX_MODELS" | while read -r model_id; do
-    echo "    - $model_id"
-  done
-else
-  echo "  No models currently loaded in oMLX (this is expected for a fresh installation)."
-fi
-echo ""
-
-# ============================================================
 # Step 2: Download and install models
 # ============================================================
 echo "=== Installing models ==="
@@ -625,10 +528,11 @@ download_and_verify() {
   echo "  SHA256 verified: $actual"
 }
 
-# Check if a model ID is present in the OMLX_MODELS list
+# Check if a model has been unzipped to the models directory
+# The zip files are named models--<model_id>.zip, so the extracted dir has a "models--" prefix
 model_installed() {
   model_id="$1"
-  echo "$OMLX_MODELS" | grep -qx "$model_id"
+  [ -d "$MODELS_DIR/models--$model_id" ]
 }
 
 # Download and install each model only if not already present in oMLX
