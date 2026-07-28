@@ -268,6 +268,8 @@ OMLX_SSD_CACHE_MAX="50GB"
 OMLX_HOT_CACHE_MAX="$((OMLX_RAM_GB - 17))GB"
 
 # Junie model configuration
+JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
+JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
 # TODO: calculate it
 JUNIE_MAX_CONTEXT_LENGTH=90000
 
@@ -392,7 +394,7 @@ EOF
 # Function to create Junie model config file
 create_junie_model_config() {
   JUNIE_MODELS_DIR="$HOME/.junie/models"
-  JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/local-qwen3.6-27b-4bit.json"
+  JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/${JUNIE_MODEL_ID}.json"
   SETTINGS_FILE="$HOME/.omlx/settings.json"
 
   if [ ! -f "$SETTINGS_FILE" ]; then
@@ -432,6 +434,22 @@ create_junie_model_config() {
 }
 EOF
   echo "  Junie model config created."
+  return 0
+}
+
+# Function to set the local model as the default in Junie settings
+set_default_junie_model() {
+  JUNIE_SETTINGS="$HOME/.junie/settings.json"
+
+  if [ ! -f "$JUNIE_SETTINGS" ]; then
+    echo "  WARNING: Junie settings not found at $JUNIE_SETTINGS"
+    echo "  Skipping default model configuration."
+    return 1
+  fi
+
+  echo "  Setting local model as default in Junie..."
+  plutil -replace "modelForLaunch" -string "$JUNIE_CUSTOM_MODEL_ID" "$JUNIE_SETTINGS"
+  echo "  Default model set to $JUNIE_MODEL_ID."
   return 0
 }
 
@@ -664,6 +682,7 @@ configure_model_settings
 configure_omlx_cache
 restart_omlx
 create_junie_model_config
+set_default_junie_model
 
 echo ""
 echo "=== Installation complete ==="
@@ -674,6 +693,6 @@ echo "  oMLX hot cache: $OMLX_HOT_CACHE_MAX"
 echo "  Model memory: ~17 GB"
 echo "  Total oMLX memory: ${OMLX_RAM_GB}GB"
 echo ""
-echo "  Now you can use your local model in Junie:"
-echo "  Use /models command and choose local-qwen3.6-27b-4bit"
+echo "  Default model set to $JUNIE_MODEL_ID."
+echo "  Restart Junie to apply the changes."
 wait_and_exit 0
