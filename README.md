@@ -5,9 +5,9 @@ Local inference support for Junie on macOS. This repository provides an automate
 ## System Requirements
 
 - **macOS 26** or higher
-- **Apple M4 or M5** processor (recommended; other CPUs may work with a warning)
-- **32 GB RAM** minimum (63 GB recommended for optimal performance)
-- **~40 GB** free disk space for models and caches
+- **Apple Silicon** processor (M4 or M5 recommended; older Apple Silicon works with a warning)
+- **40 GB RAM** minimum (60 GB recommended for optimal performance)
+- **~65 GB** free disk space (~15 GB for models, up to 50 GB for the SSD cache)
 
 ## Quick Install
 
@@ -17,10 +17,11 @@ The installer is designed to be run with `sh` from within Junie. No parameters a
 
 ### Running Manually
 
-You can also run the installer directly from your terminal:
+The installer is interactive (it asks for confirmation and lets you customize the port and RAM allowance), so it needs a terminal. Download it first, then run it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh
+sh /tmp/junie-local-install.sh
 ```
 
 #### Memory Parameter
@@ -28,10 +29,10 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 By default, the script allocates **35 GB** of RAM to oMLX. You can adjust this by passing the desired value as the first argument:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh | zsh - 48
+sh /tmp/junie-local-install.sh 48
 ```
 
-This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches).
+This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches). You can also change the value interactively by answering `n` at the confirmation prompt.
 
 ### Note on Terminal Behavior
 
@@ -41,7 +42,7 @@ When the script is run from Junie, the terminal window will close automatically 
 
 | Component | Size | Destination |
 |---|---|---|
-| **oMLX 0.5.3** | ~50 MB (DMG) | `/Applications/oMLX.app` |
+| **oMLX 0.5.3** | ~50 MB (DMG) | `~/Applications/oMLX.app` |
 | **Qwen3.6-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
 | **Qwen3.6-27B-MTP-4bit** | ~247 MB | `~/.local/share/junie-local/models/` |
 
@@ -54,6 +55,8 @@ The installer downloads and configures **[oMLX](https://omlx.ai)** — a local M
 - **Website:** [omlx.ai](https://omlx.ai)
 - **GitHub Releases:** [jundot/omlx](https://github.com/jundot/omlx/releases)
 
+If oMLX is already installed (in `/Applications` or `~/Applications`), the installer reuses it and its configured port. Version **0.5.2** or higher is required — if your installation is older, the installer exits and asks you to update oMLX manually before re-running.
+
 After installation, oMLX is configured with:
 - **SSD cache:** 50 GB
 - **Hot cache:** RAM allocation minus 17 GB (reserved for the model)
@@ -61,11 +64,11 @@ After installation, oMLX is configured with:
 
 ## Junie Model Configuration
 
-The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing to the local oMLX server. After installation, select it in Junie with the `/models` command.
+The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing to the local oMLX server, and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
 
 ## Resumable Downloads with Automatic Retries
 
-Downloads are stored in `~/.local/share/junie-local/incomplete_downloads/`. If a download fails due to a network issue, the script automatically retries up to **5 times** with exponential backoff (starting at 2 seconds, doubling each attempt). Partial downloads are preserved and resumed using `curl -C -`.
+Downloads are stored in `~/.local/share/junie-local/incomplete_downloads/`. If a download fails due to a network issue, the script automatically retries up to **3 times** with exponential backoff (starting at 2 seconds, doubling each attempt). Partial downloads are preserved and resumed using `curl -C -`.
 
 If the script is interrupted (Ctrl+C, etc.), the partial downloads remain. Simply re-run the script and it will resume from where it left off.
 
