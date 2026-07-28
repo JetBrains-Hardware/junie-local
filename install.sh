@@ -25,6 +25,45 @@ CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")
 MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
 MEM_GB=$((MEM_BYTES / 1073741824))
 
+# Function to compare two version strings (returns 0 if v1 >= v2)
+version_ge() {
+  v1="$1"
+  v2="$2"
+  if [ "$v1" = "$v2" ]; then
+    return 0
+  fi
+  # Use sort -V to compare versions
+  highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
+  [ "$v1" = "$highest" ]
+}
+
+# oMLX constants (needed early for detection)
+OMLX_APP="/Applications/oMLX.app"
+OMLX_SETTINGS="$HOME/.omlx/settings.json"
+OMLX_MIN_VERSION="0.5.2"
+OMLX_TARGET_VERSION="0.5.3"
+
+# Detect existing oMLX installation
+OMLX_INSTALLED=false
+OMLX_NEEDS_UPDATE=false
+OMLX_EXISTING_VERSION=""
+OMLX_EXISTING_PORT=""
+
+if [ -f "$OMLX_SETTINGS" ]; then
+  OMLX_EXISTING_PORT=$(plutil -extract server.port raw "$OMLX_SETTINGS" 2>/dev/null || echo "")
+fi
+
+if [ -d "$OMLX_APP" ] && [ -n "$OMLX_EXISTING_PORT" ]; then
+  OMLX_EXISTING_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$OMLX_APP/Contents/Info.plist" 2>/dev/null || echo "unknown")
+  OMLX_INSTALLED=true
+  # Check if version meets minimum requirement
+  if [ "$OMLX_EXISTING_VERSION" != "unknown" ]; then
+    if ! version_ge "$OMLX_EXISTING_VERSION" "$OMLX_MIN_VERSION"; then
+      OMLX_NEEDS_UPDATE=true
+    fi
+  fi
+fi
+
 # Find first free port starting from 8000
 check_port_free() {
   # Uses nc (netcat) to test if a port is listening
@@ -32,13 +71,19 @@ check_port_free() {
   ! nc -z localhost "$1" 2>/dev/null
 }
 
-PORT_CANDIDATE=8000
-while [ "$PORT_CANDIDATE" -lt 9000 ]; do
-  if check_port_free "$PORT_CANDIDATE"; then
-    break
-  fi
-  PORT_CANDIDATE=$((PORT_CANDIDATE + 1))
-done
+if [ "$OMLX_INSTALLED" = true ]; then
+  # Use existing oMLX port
+  PORT_CANDIDATE="$OMLX_EXISTING_PORT"
+else
+  # Find first free port
+  PORT_CANDIDATE=8000
+  while [ "$PORT_CANDIDATE" -lt 9000 ]; do
+    if check_port_free "$PORT_CANDIDATE"; then
+      break
+    fi
+    PORT_CANDIDATE=$((PORT_CANDIDATE + 1))
+  done
+fi
 
 # ============================================================
 # System info summary: evaluate & display
@@ -125,6 +170,18 @@ fi
 print_value "Free port:" "$PORT_CANDIDATE" "$PORT_OK" false "port 8000-8999 available"
 echo ""
 
+# oMLX status
+if [ "$OMLX_INSTALLED" = true ]; then
+  if [ "$OMLX_NEEDS_UPDATE" = true ]; then
+    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true true "will be updated to v${OMLX_TARGET_VERSION}"
+  else
+    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true false ""
+  fi
+else
+  print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
+fi
+echo ""
+
 # ============================================================
 # Decision: proceed or exit
 # ============================================================
@@ -155,9 +212,6 @@ DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
 OMLX_FILE="oMLX-0.5.3-macos26-27.dmg"
 OMLX_SHA256="15a2a74e20bf4518d6f6133af4ecc0f3e4c6610f3127c1612ae6178ef749a4c8"
-OMLX_APP="/Applications/oMLX.app"
-OMLX_MIN_VERSION="0.5.2"
-OMLX_TARGET_VERSION="0.5.3"
 
 # Model archives, their SHA256 checksums, and corresponding oMLX model IDs
 MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
@@ -227,18 +281,6 @@ download_with_retry() {
 
   echo "  ERROR: Download failed after $max_retries attempts."
   return 1
-}
-
-# Function to compare two version strings (returns 0 if v1 >= v2)
-version_ge() {
-  v1="$1"
-  v2="$2"
-  if [ "$v1" = "$v2" ]; then
-    return 0
-  fi
-  # Use sort -V to compare versions
-  highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
-  [ "$v1" = "$highest" ]
 }
 
 # Function to configure oMLX cache settings
@@ -432,41 +474,14 @@ $MODEL_ID"
 }
 
 # ============================================================
-# Step 1: Check and install oMLX (must happen before models)
+# Step 1: oMLX setup
 # ============================================================
-echo "=== Checking oMLX installation ==="
+echo "=== Setting up oMLX ==="
 echo ""
 
-if [ -d "$OMLX_APP" ]; then
-  # Extract installed version from CFBundleShortVersionString
-  INSTALLED_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$OMLX_APP/Contents/Info.plist" 2>/dev/null || echo "unknown")
-  echo "  oMLX is already installed at $OMLX_APP"
-  echo "  Installed version: $INSTALLED_VERSION"
-
-  if [ "$INSTALLED_VERSION" = "unknown" ]; then
-    echo "  WARNING: Could not determine installed version."
-    echo "  Proceeding with update to version $OMLX_TARGET_VERSION."
-    SKIP_OMLX=false
-  elif version_ge "$INSTALLED_VERSION" "$OMLX_MIN_VERSION"; then
-    echo "  Version $INSTALLED_VERSION meets minimum requirement ($OMLX_MIN_VERSION)."
-    echo "  Skipping oMLX installation."
-    SKIP_OMLX=true
-  else
-    echo "  Version $INSTALLED_VERSION is below minimum requirement ($OMLX_MIN_VERSION)."
-    echo "  Proceeding with update to version $OMLX_TARGET_VERSION."
-    SKIP_OMLX=false
-  fi
-else
-  echo "  oMLX is not installed."
-  echo "  Proceeding with installation of version $OMLX_TARGET_VERSION."
-  SKIP_OMLX=false
-fi
-
-echo ""
-
-if [ "$SKIP_OMLX" = false ]; then
+install_omlx() {
   # Download and install oMLX DMG
-  echo "Downloading $OMLX_FILE..."
+  echo "  Downloading $OMLX_FILE..."
   download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE"
   echo "  Download complete."
 
@@ -481,7 +496,7 @@ if [ "$SKIP_OMLX" = false ]; then
   echo "  SHA256 verified: $actual_sha256"
 
   # Mount and open oMLX DMG
-  echo "Opening oMLX DMG..."
+  echo "  Opening oMLX DMG..."
   hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" > /dev/null 2>&1
   MOUNT_POINT=$(ls /Volumes/ | grep "^oMLX" | head -1)
   MOUNT_POINT="/Volumes/$MOUNT_POINT"
@@ -497,6 +512,22 @@ if [ "$SKIP_OMLX" = false ]; then
   echo "  Please start oMLX from the Applications folder."
   read -r -p "  Press Enter once oMLX is running..."
   echo ""
+}
+
+if [ "$OMLX_INSTALLED" = true ] && [ "$OMLX_NEEDS_UPDATE" = false ]; then
+  # Path A: Reuse existing oMLX
+  echo "  Reusing existing oMLX v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}."
+  echo ""
+elif [ "$OMLX_INSTALLED" = true ] && [ "$OMLX_NEEDS_UPDATE" = true ]; then
+  # Path B: Update existing oMLX
+  echo "  Updating oMLX from v${OMLX_EXISTING_VERSION} to v${OMLX_TARGET_VERSION}..."
+  echo ""
+  install_omlx
+else
+  # Path C: Fresh install
+  echo "  Installing oMLX v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}..."
+  echo ""
+  install_omlx
 fi
 
 # ============================================================
