@@ -38,10 +38,23 @@ version_ge() {
 }
 
 # oMLX constants (needed early for detection)
-OMLX_APP="/Applications/oMLX.app"
 OMLX_SETTINGS="$HOME/.omlx/settings.json"
 OMLX_MIN_VERSION="0.5.2"
 OMLX_TARGET_VERSION="0.5.3"
+OMLX_INSTALL_DIR="$HOME/Applications"
+
+# Detect existing oMLX installation in /Applications or ~/Applications
+find_omlx_app() {
+  if [ -d "/Applications/oMLX.app" ]; then
+    echo "/Applications/oMLX.app"
+  elif [ -d "$HOME/Applications/oMLX.app" ]; then
+    echo "$HOME/Applications/oMLX.app"
+  else
+    echo ""
+  fi
+}
+
+OMLX_APP=$(find_omlx_app)
 
 # Detect existing oMLX installation
 OMLX_INSTALLED=false
@@ -53,7 +66,7 @@ if [ -f "$OMLX_SETTINGS" ]; then
   OMLX_EXISTING_PORT=$(plutil -extract server.port raw "$OMLX_SETTINGS" 2>/dev/null || echo "")
 fi
 
-if [ -d "$OMLX_APP" ] && [ -n "$OMLX_EXISTING_PORT" ]; then
+if [ -n "$OMLX_APP" ] && [ -n "$OMLX_EXISTING_PORT" ]; then
   OMLX_EXISTING_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$OMLX_APP/Contents/Info.plist" 2>/dev/null || echo "unknown")
   OMLX_INSTALLED=true
   # Check if version meets minimum requirement
@@ -422,11 +435,22 @@ EOF
   return 0
 }
 
+# Function to find oMLX CLI in either /Applications or ~/Applications
+find_omlx_cli() {
+  if [ -x "/Applications/oMLX.app/Contents/MacOS/omlx-cli" ]; then
+    echo "/Applications/oMLX.app/Contents/MacOS/omlx-cli"
+  elif [ -x "$HOME/Applications/oMLX.app/Contents/MacOS/omlx-cli" ]; then
+    echo "$HOME/Applications/oMLX.app/Contents/MacOS/omlx-cli"
+  else
+    echo ""
+  fi
+}
+
 # Function to restart oMLX server to load new settings
 restart_omlx() {
-  OMLX_CLI="/Applications/oMLX.app/Contents/MacOS/omlx-cli"
-  if [ ! -x "$OMLX_CLI" ]; then
-    echo "  WARNING: omlx-cli not found at $OMLX_CLI"
+  OMLX_CLI=$(find_omlx_cli)
+  if [ -z "$OMLX_CLI" ]; then
+    echo "  WARNING: omlx-cli not found."
     echo "  Please restart oMLX manually to apply settings."
     return 1
   fi
@@ -501,7 +525,7 @@ echo "=== Setting up oMLX ==="
 echo ""
 
 install_omlx() {
-  # Download and install oMLX DMG
+  # Download oMLX DMG
   echo "  Downloading $OMLX_FILE..."
   download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE"
   echo "  Download complete."
@@ -516,22 +540,40 @@ install_omlx() {
   fi
   echo "  SHA256 verified: $actual_sha256"
 
-  # Mount and open oMLX DMG
-  echo "  Opening oMLX DMG..."
-  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" > /dev/null 2>&1
-  MOUNT_POINT=$(ls /Volumes/ | grep "^oMLX" | head -1)
-  MOUNT_POINT="/Volumes/$MOUNT_POINT"
-  open "$MOUNT_POINT"
-  echo ""
-  echo "  Drag the oMLX.app into the Applications folder."
-  echo ""
+  # Mount DMG to a temporary location
+  MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/omlx-install.XXXXXX")
+  echo "  Mounting oMLX DMG..."
+  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" -nobrowse -readonly -mountpoint "$MOUNT_DIR" > /dev/null 2>&1
 
-  # Clean up oMLX download
+  SOURCE="$MOUNT_DIR/oMLX.app"
+  DESTINATION="$OMLX_INSTALL_DIR/oMLX.app"
+
+  if [ ! -d "$SOURCE" ]; then
+    echo "  ERROR: oMLX.app not found inside DMG."
+    hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
+    rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
+    wait_and_exit 1
+  fi
+
+  # Create user Applications directory if needed
+  mkdir -p "$OMLX_INSTALL_DIR"
+
+  # Remove previous version if it exists
+  if [ -e "$DESTINATION" ]; then
+    echo "  Removing existing version..."
+    rm -rf "$DESTINATION"
+  fi
+
+  # Copy oMLX.app to user Applications
+  echo "  Installing oMLX to $DESTINATION..."
+  /usr/bin/ditto "$SOURCE" "$DESTINATION"
+
+  # Unmount DMG and clean up
+  hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
+  rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
   rm -f "$DOWNLOAD_DIR/$OMLX_FILE"
 
-  # Pause and ask user to start oMLX
-  echo "  Please start oMLX from the Applications folder."
-  read -r -p "  Press Enter once oMLX is running..."
+  echo "  oMLX installed successfully."
   echo ""
 }
 
