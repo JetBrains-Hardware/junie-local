@@ -5,7 +5,8 @@ set -e
 wait_and_exit() {
   echo ""
   echo "Press any key to exit..."
-  read -r -n 1
+  # If read fails, still exit with the intended code (not read's status)
+  read -r -n 1 || true
   exit "$1"
 }
 
@@ -35,6 +36,23 @@ version_ge() {
   # Use sort -V to compare versions
   highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
   [ "$v1" = "$highest" ]
+}
+
+# RAM allowance must be a whole number of at least 18 GB
+# (17 GB is reserved for model weights, the rest goes to the hot cache)
+is_valid_ram() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 18 ]
+}
+
+# Port must be a whole number in 1024-65535
+is_valid_port() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
 }
 
 # oMLX constants (needed early for detection)
@@ -96,6 +114,10 @@ else
     fi
     PORT_CANDIDATE=$((PORT_CANDIDATE + 1))
   done
+  if [ "$PORT_CANDIDATE" -ge 9000 ]; then
+    echo "ERROR: No free port found in range 8000-8999."
+    wait_and_exit 1
+  fi
 fi
 
 # ============================================================
@@ -176,6 +198,10 @@ echo ""
 
 # RAM allowance for inference (weights + KV cache)
 OMLX_MODEL_RAM_GB="${1:-35}"
+if ! is_valid_ram "$OMLX_MODEL_RAM_GB"; then
+  printf "  ${RED}ERROR:${NC} RAM allowance must be a whole number of at least 18 GB (got: %s)\n" "$OMLX_MODEL_RAM_GB"
+  wait_and_exit 1
+fi
 
 # oMLX status — in System Information if installed, in Install Configuration if not
 # An installed oMLX older than the minimum version is a hard failure:
@@ -198,6 +224,10 @@ if [ "$OMLX_INSTALLED" = false ]; then
   print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
 fi
 print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
+if [ "$OMLX_INSTALLED" = true ]; then
+  echo ""
+  echo "  Note: existing oMLX cache settings will be updated to match the RAM allowance."
+fi
 echo ""
 
 # ============================================================
@@ -218,11 +248,19 @@ case "$CONTINUE_ANSWER" in
     if [ "$OMLX_INSTALLED" = false ]; then
       read -r -p "Port [${PORT_CANDIDATE}]: " CUSTOM_PORT
       CUSTOM_PORT="${CUSTOM_PORT:-$PORT_CANDIDATE}"
-      PORT_CANDIDATE="$CUSTOM_PORT"
+      if is_valid_port "$CUSTOM_PORT"; then
+        PORT_CANDIDATE="$CUSTOM_PORT"
+      else
+        echo "  Invalid port '$CUSTOM_PORT' (must be 1024-65535) — keeping ${PORT_CANDIDATE}."
+      fi
     fi
     read -r -p "RAM allowance (GB) [${OMLX_MODEL_RAM_GB}]: " CUSTOM_RAM
     CUSTOM_RAM="${CUSTOM_RAM:-$OMLX_MODEL_RAM_GB}"
-    OMLX_MODEL_RAM_GB="$CUSTOM_RAM"
+    if is_valid_ram "$CUSTOM_RAM"; then
+      OMLX_MODEL_RAM_GB="$CUSTOM_RAM"
+    else
+      echo "  Invalid RAM allowance '$CUSTOM_RAM' (whole number, min 18) — keeping ${OMLX_MODEL_RAM_GB} GB."
+    fi
     echo ""
     echo "Updated configuration:"
     if [ "$OMLX_INSTALLED" = false ]; then
@@ -284,8 +322,12 @@ cleanup() {
   trap - INT TERM
 
   echo ""
-  echo "Interrupted — partial downloads preserved in $DOWNLOAD_DIR"
-  echo "Re-run this script to resume."
+  if [ -d "$DOWNLOAD_DIR" ]; then
+    echo "Interrupted — partial downloads preserved in $DOWNLOAD_DIR"
+    echo "Re-run this script to resume."
+  else
+    echo "Interrupted."
+  fi
 
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
@@ -483,8 +525,9 @@ restart_omlx() {
 # Function to configure model settings for Qwen3.6-27B-4bit
 configure_model_settings() {
   MODEL_SETTINGS_FILE="$HOME/.omlx/model_settings.json"
-  MODEL_ID="mlx-community--Qwen3.6-27B-4bit"
-  KEY_PATH="models.mlx-community--Qwen3\.6-27B-4bit"
+  MODEL_ID="$MODEL_ID_1"
+  # Dots in the model ID must be escaped in plutil key paths
+  KEY_PATH="models.$(printf '%s' "$MODEL_ID" | sed 's/\./\\./g')"
 
   if [ ! -f "$MODEL_SETTINGS_FILE" ]; then
     echo "  Creating model_settings.json at $MODEL_SETTINGS_FILE..."
@@ -500,7 +543,7 @@ configure_model_settings() {
 
   # Write the model configuration
   echo "  Configuring model settings for $MODEL_ID..."
-  plutil -insert "$KEY_PATH" -json '{"force_sampling":false,"enable_thinking":false,"thinking_budget_enabled":false,"guided_grammar_enabled":false,"turboquant_kv_enabled":false,"turboquant_kv_bits":4.0,"turboquant_skip_last":true,"specprefill_enabled":false,"dflash_enabled":false,"dflash_draft_quant_enabled":false,"dflash_in_memory_cache":true,"dflash_in_memory_cache_max_entries":4,"dflash_in_memory_cache_max_bytes":8589934592,"dflash_ssd_cache":false,"dflash_ssd_cache_max_bytes":21474836480,"mtp_enabled":false,"vlm_mtp_enabled":true,"vlm_mtp_draft_model":"mlx-community--Qwen3.6-27B-MTP-4bit","vlm_mtp_draft_block_size":4,"is_pinned":false,"is_default":false,"is_hidden":false,"is_favorite":false,"trust_remote_code":false}' -r "$MODEL_SETTINGS_FILE"
+  plutil -insert "$KEY_PATH" -json '{"force_sampling":false,"enable_thinking":false,"thinking_budget_enabled":false,"guided_grammar_enabled":false,"turboquant_kv_enabled":false,"turboquant_kv_bits":4.0,"turboquant_skip_last":true,"specprefill_enabled":false,"dflash_enabled":false,"dflash_draft_quant_enabled":false,"dflash_in_memory_cache":true,"dflash_in_memory_cache_max_entries":4,"dflash_in_memory_cache_max_bytes":8589934592,"dflash_ssd_cache":false,"dflash_ssd_cache_max_bytes":21474836480,"mtp_enabled":false,"vlm_mtp_enabled":true,"vlm_mtp_draft_model":"'"$MODEL_ID_2"'","vlm_mtp_draft_block_size":4,"is_pinned":false,"is_default":false,"is_hidden":false,"is_favorite":false,"trust_remote_code":false}' -r "$MODEL_SETTINGS_FILE"
   echo "  Model settings for $MODEL_ID configured."
   return 0
 }
@@ -563,7 +606,7 @@ install_omlx() {
   # Mount DMG to a temporary location
   MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/omlx-install.XXXXXX")
   echo "  Mounting oMLX DMG..."
-  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" -nobrowse -readonly -mountpoint "$MOUNT_DIR" > /dev/null 2>&1
+  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" -nobrowse -readonly -mountpoint "$MOUNT_DIR" > /dev/null
 
   SOURCE="$MOUNT_DIR/oMLX.app"
   DESTINATION="$OMLX_INSTALL_DIR/oMLX.app"
@@ -634,11 +677,17 @@ download_and_verify() {
   echo "  SHA256 verified: $actual"
 }
 
-# Check if a model has been unzipped to the models directory
-# The zip files are named models--<model_id>.zip, so the extracted dir has a "models--" prefix
+# Check if a model has been fully unzipped to the models directory.
+# The zip files are named models--<model_id>.zip, so the extracted dir has a
+# "models--" prefix. A completion marker file is written after extraction —
+# a model directory without it is a leftover from an interrupted extraction.
+model_completion_marker() {
+  echo "$MODELS_DIR/.models--$1.installed"
+}
+
 model_installed() {
   model_id="$1"
-  [ -d "$MODELS_DIR/models--$model_id" ]
+  [ -d "$MODELS_DIR/models--$model_id" ] && [ -f "$(model_completion_marker "$model_id")" ]
 }
 
 # Download and install each model only if not already present in oMLX
@@ -657,7 +706,10 @@ install_model_if_needed() {
   echo ""
   download_and_verify "$zip_file" "$sha256_sum"
   echo "Extracting $zip_file to $MODELS_DIR..."
+  # Remove leftovers from a previously interrupted extraction
+  rm -rf "$MODELS_DIR/models--$model_id"
   unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
+  touch "$(model_completion_marker "$model_id")"
   echo "  Extraction complete."
   echo ""
 }
