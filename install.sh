@@ -665,7 +665,7 @@ download_and_verify() {
 
   echo "Downloading $archive..."
   download_with_retry "$BASE_URL/$archive" "$DOWNLOAD_DIR/$archive"
-  echo "  Download complete."
+  echo "  Download complete. Checking SHA256..."
 
   actual=$(shasum -a 256 "$DOWNLOAD_DIR/$archive" | awk '{print $1}')
   if [ "$actual" != "$expected_sha256" ]; then
