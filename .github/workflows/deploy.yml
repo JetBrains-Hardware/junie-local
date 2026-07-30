@@ -1,0 +1,45 @@
+name: Deploy to S3
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Required for OIDC token to assume AWS role
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: eu-west-1
+
+      - name: Download and upload model archive
+        run: |
+          curl --fail --location --progress-bar \
+            "https://junie-local.erokhins.com/models--mlx-community--Qwen3.6-27B-MTP-4bit.zip" \
+            | aws s3 cp \
+              - \
+              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/models--mlx-community--Qwen3.6-27B-MTP-4bit.zip" \
+              --acl private \
+              --region eu-west-1 \
+              --no-guess-mime-type
+
+      - name: Upload SHA256 checksum
+        run: |
+          aws s3 cp \
+            deploy/models--mlx-community--Qwen3.6-27B-MTP-4bit.zip.sha256 \
+            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/models--mlx-community--Qwen3.6-27B-MTP-4bit.zip.sha256" \
+            --acl private \
+            --region eu-west-1 \
+            --no-guess-mime-type
