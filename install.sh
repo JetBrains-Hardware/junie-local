@@ -285,7 +285,7 @@ case "$CONTINUE_ANSWER" in
 esac
 
 # Configuration
-BASE_URL="https://junie-local.erokhins.com"
+BASE_URL="https://download.jetbrains.com/resources/junie-local"
 BASE_DIR="$HOME/.local/share/junie-local"
 MODELS_DIR="$BASE_DIR/models"
 DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
