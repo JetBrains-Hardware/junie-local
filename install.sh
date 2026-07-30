@@ -221,7 +221,7 @@ echo "=== Install Configuration ==="
 echo ""
 
 if [ "$OMLX_INSTALLED" = false ]; then
-  print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
+  print_value "oMLX:" "not installed" true true "This script will install version v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
 fi
 print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
 if [ "$OMLX_INSTALLED" = true ]; then
