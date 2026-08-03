@@ -37,6 +37,21 @@ This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches).
 
 When the script is run from Junie, the terminal window will close automatically when the script completes. The script displays a "press any key to exit" message at the end of every exit path to give you time to read the final output.
 
+## Previewing the Installer UI
+
+`preview.sh` replays every screen the installer draws — the logo, the system checks, the progress bar, the final summary — without installing anything:
+
+```bash
+./preview.sh                  # all screens with fake data, no network (~25 s)
+JUNIE_NO_ANIM=1 ./preview.sh  # the plain output used in pipes and in CI
+./preview.sh --resume-demo    # pre-seeds a partial file, then resumes it for real
+./preview.sh --real           # real download; Ctrl+C, run it again, watch it resume
+```
+
+It does not carry its own copy of the UI code: it extracts the block between the `# --- junie-ui:begin ---` and `# --- junie-ui:end ---` markers from `install.sh` and sources it, so the preview always shows what the installer really draws. oMLX is never installed, `~/.omlx/settings.json` is never touched, and the `--real` modes download into `~/.cache/junie-local-preview` (override with `JUNIE_PREVIEW_DIR`).
+
+A truecolor terminal is needed for the palette. The animations and the bar are skipped when the output is not a terminal, when `CI=true`, or when `JUNIE_NO_ANIM=1` — then the same numbers are logged once per 10% instead.
+
 ## What Gets Installed
 
 | Component | Size | Destination |
@@ -69,6 +84,12 @@ The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b
 
 Downloads are stored in `~/.local/share/junie-local/incomplete_downloads/`. If a download fails due to a network issue, the script automatically retries up to **3 times** with exponential backoff (starting at 2 seconds, doubling each attempt). Partial downloads are preserved and resumed using `curl -C -`.
 
-If the script is interrupted (Ctrl+C, etc.), the partial downloads remain. Simply re-run the script and it will resume from where it left off.
+If the script is interrupted (Ctrl+C, etc.), the partial downloads remain. Simply re-run the script and it will resume from where it left off — the progress bar starts at the percentage already on disk instead of at zero.
+
+A few details of that path:
+
+- A file that already has the size the server reports is skipped after a single `HEAD` request, so re-running over a completed download costs nothing.
+- An attempt that transferred something resets the backoff, so a flaky connection that keeps moving forward is not abandoned after three tries.
+- An archive that fails its SHA256 check is deleted. Keeping it would make every later run resume into the same corrupt bytes and fail the same check forever.
 
 Once all downloads are verified and extracted, the `incomplete_downloads` directory is automatically removed.
