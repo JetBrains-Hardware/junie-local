@@ -1,12 +1,126 @@
 #!/bin/sh
 set -e
 
+# ============================================================
+# Command-line arguments
+# ============================================================
+
+PROTOCOL_VERSION=1
+
+MACHINE_OUTPUT=false
+CHECK_ONLY=false
+ASSUME_YES=false
+ARG_RAM=""
+ARG_PORT=""
+
+usage() {
+  echo "Usage: install.sh [RAM_GB] [options]"
+  echo ""
+  echo "Options:"
+  echo "  --ram N       RAM allowance in GB for inference (default: 35, min 18)"
+  echo "  --port N      Port for a fresh oMLX install (default: first free port in 8000-8999)"
+  echo "  --yes, -y     Skip the confirmation prompt"
+  echo "  --check-only  Report system information and install configuration, then exit"
+  echo "  --json        Emit machine-readable events on stdout, human output on stderr (implies --yes)"
+  echo "  --help, -h    Show this help"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) MACHINE_OUTPUT=true; ASSUME_YES=true ;;
+    --check-only) CHECK_ONLY=true ;;
+    --yes|-y) ASSUME_YES=true ;;
+    --ram) shift; ARG_RAM="${1:-}" ;;
+    --ram=*) ARG_RAM="${1#--ram=}" ;;
+    --port) shift; ARG_PORT="${1:-}" ;;
+    --port=*) ARG_PORT="${1#--port=}" ;;
+    --help|-h) usage; exit 0 ;;
+    -*) echo "ERROR: Unknown option: $1"; usage; exit 1 ;;
+    *) ARG_RAM="$1" ;;
+  esac
+  shift
+done
+
+if [ "$MACHINE_OUTPUT" = true ]; then
+  # stdout carries only machine events; human-oriented output goes to stderr
+  exec 3>&1 1>&2
+fi
+
+# ============================================================
+# Machine-readable events (--json): one JSON object per line on stdout
+#   {"event":"hello","protocol":1}
+#   {"event":"check","name":"os|cpu|ram|omlx","status":"ok|warn|fail","value":"...","requirement":"..."}
+#   {"event":"config","port":N,"ram_gb":N,"omlx_installed":true|false,"omlx_version":"...","checks_passed":true|false}
+#   {"event":"step_start","id":"omlx|models|configure","title":"..."}
+#   {"event":"progress","file":"...","bytes":N,"total":N,"label":"..."}
+#   {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
+#   {"event":"step_done","id":"omlx|models|configure"}
+#   {"event":"warning","message":"..."}
+#   {"event":"error","message":"..."}
+#   {"event":"done","model_id":"...","port":N}
+# Consumers must check the protocol version in "hello" and ignore
+# unknown event types and fields.
+# ============================================================
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+emit_event() {
+  if [ "$MACHINE_OUTPUT" = true ]; then
+    printf '{%s}\n' "$1" >&3
+  fi
+}
+
+emit_check() {
+  emit_event "\"event\":\"check\",\"name\":\"$1\",\"status\":\"$2\",\"value\":\"$(json_escape "$3")\",\"requirement\":\"$(json_escape "$4")\""
+}
+
+emit_step_start() {
+  emit_event "\"event\":\"step_start\",\"id\":\"$1\",\"title\":\"$(json_escape "$2")\""
+}
+
+emit_step_done() {
+  emit_event "\"event\":\"step_done\",\"id\":\"$1\""
+}
+
+emit_progress() {
+  emit_event "\"event\":\"progress\",\"file\":\"$(json_escape "$1")\",\"bytes\":${2:-0},\"total\":${3:-0},\"label\":\"$(json_escape "$4")\""
+}
+
+emit_activity() {
+  emit_event "\"event\":\"activity\",\"action\":\"$1\",\"file\":\"$(json_escape "$2")\",\"label\":\"$(json_escape "$3")\""
+}
+
+emit_warning() {
+  emit_event "\"event\":\"warning\",\"message\":\"$(json_escape "$1")\""
+}
+
+emit_error() {
+  emit_event "\"event\":\"error\",\"message\":\"$(json_escape "$1")\""
+}
+
+# Map an ok/warn flag pair to a check status
+check_status() {
+  if [ "$1" != true ]; then
+    echo "fail"
+  elif [ "$2" = true ]; then
+    echo "warn"
+  else
+    echo "ok"
+  fi
+}
+
+emit_event "\"event\":\"hello\",\"protocol\":$PROTOCOL_VERSION"
+
 # Helper: wait for user to press any key, then exit
 wait_and_exit() {
-  echo ""
-  echo "Press any key to exit..."
-  # If read fails, still exit with the intended code (not read's status)
-  read -r -n 1 || true
+  if [ "$MACHINE_OUTPUT" != true ]; then
+    echo ""
+    echo "Press any key to exit..."
+    # If read fails, still exit with the intended code (not read's status)
+    read -r -n 1 || true
+  fi
   exit "$1"
 }
 
@@ -116,6 +230,21 @@ else
   done
   if [ "$PORT_CANDIDATE" -ge 9000 ]; then
     echo "ERROR: No free port found in range 8000-8999."
+    emit_error "No free port found in range 8000-8999"
+    wait_and_exit 1
+  fi
+fi
+
+# Port override from --port (only meaningful for a fresh install)
+if [ -n "$ARG_PORT" ]; then
+  if [ "$OMLX_INSTALLED" = true ]; then
+    echo "WARNING: --port is ignored because oMLX is already installed on port ${OMLX_EXISTING_PORT}."
+    emit_warning "--port is ignored because oMLX is already installed on port ${OMLX_EXISTING_PORT}"
+  elif is_valid_port "$ARG_PORT"; then
+    PORT_CANDIDATE="$ARG_PORT"
+  else
+    echo "ERROR: Invalid port '$ARG_PORT' (must be 1024-65535)."
+    emit_error "Invalid port '$ARG_PORT' (must be 1024-65535)"
     wait_and_exit 1
   fi
 fi
@@ -133,6 +262,13 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
+
+if [ "$MACHINE_OUTPUT" = true ]; then
+  GREEN=''
+  RED=''
+  YELLOW=''
+  NC=''
+fi
 
 # Helper: print a value in green if ok, yellow if warning, red if not ok
 print_value() {
@@ -162,6 +298,7 @@ elif [ "$OS_VERSION" -lt 26 ]; then
   ALL_OK=false
 fi
 print_value "OS:" "$UNAME_OUT $OS_FULL_VERSION" "$OS_OK" false "macOS 26 or higher"
+emit_check "os" "$(check_status "$OS_OK" false)" "$UNAME_OUT $OS_FULL_VERSION" "macOS 26 or higher"
 echo ""
 
 # CPU check (hard: Apple Silicon, recommended: M4 or M5)
@@ -182,6 +319,7 @@ case "$CPU_MODEL" in
     ;;
 esac
 print_value "CPU:" "$CPU_MODEL" "$CPU_OK" "$CPU_WARN" "M4 or M5 recommended"
+emit_check "cpu" "$(check_status "$CPU_OK" "$CPU_WARN")" "$CPU_MODEL" "M4 or M5 recommended"
 echo ""
 
 # RAM check (hard: >= 40 GB, recommended: >= 60 GB)
@@ -194,12 +332,14 @@ elif [ "$MEM_GB" -lt 60 ]; then
   RAM_WARN=true
 fi
 print_value "RAM:" "${MEM_GB} GB" "$RAM_OK" "$RAM_WARN" "minimum 40 GB, 60 GB recommended"
+emit_check "ram" "$(check_status "$RAM_OK" "$RAM_WARN")" "${MEM_GB} GB" "minimum 40 GB, 60 GB recommended"
 echo ""
 
 # RAM allowance for inference (weights + KV cache)
-OMLX_MODEL_RAM_GB="${1:-35}"
+OMLX_MODEL_RAM_GB="${ARG_RAM:-35}"
 if ! is_valid_ram "$OMLX_MODEL_RAM_GB"; then
   printf "  ${RED}ERROR:${NC} RAM allowance must be a whole number of at least 18 GB (got: %s)\n" "$OMLX_MODEL_RAM_GB"
+  emit_error "RAM allowance must be a whole number of at least 18 GB (got: $OMLX_MODEL_RAM_GB)"
   wait_and_exit 1
 fi
 
@@ -210,8 +350,10 @@ if [ "$OMLX_INSTALLED" = true ]; then
   if [ "$OMLX_NEEDS_UPDATE" = true ]; then
     ALL_OK=false
     print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" false false "v${OMLX_MIN_VERSION} or higher — please update oMLX manually and re-run"
+    emit_check "omlx" "fail" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" "v${OMLX_MIN_VERSION} or higher — please update oMLX manually and re-run"
   else
     print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true false ""
+    emit_check "omlx" "ok" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" ""
   fi
 fi
 echo ""
@@ -230,16 +372,31 @@ if [ "$OMLX_INSTALLED" = true ]; then
 fi
 echo ""
 
+emit_event "\"event\":\"config\",\"port\":$PORT_CANDIDATE,\"ram_gb\":$OMLX_MODEL_RAM_GB,\"omlx_installed\":$OMLX_INSTALLED,\"omlx_version\":\"$(json_escape "$OMLX_EXISTING_VERSION")\",\"checks_passed\":$ALL_OK"
+
+if [ "$CHECK_ONLY" = true ]; then
+  if [ "$ALL_OK" = true ]; then
+    exit 0
+  else
+    exit 1
+  fi
+fi
+
 # ============================================================
 # Decision: proceed or exit
 # ============================================================
 if [ "$ALL_OK" = false ]; then
   echo "Some system requirements are not met. Installation cannot proceed."
+  emit_error "Some system requirements are not met. Installation cannot proceed."
   wait_and_exit 1
 fi
 
-# All hard requirements met — ask user to confirm
-read -r -p "Do you want to continue with these settings? [Y/n] " CONTINUE_ANSWER
+# All hard requirements met — ask user to confirm (skipped with --yes/--json)
+if [ "$ASSUME_YES" = true ]; then
+  CONTINUE_ANSWER="y"
+else
+  read -r -p "Do you want to continue with these settings? [Y/n] " CONTINUE_ANSWER
+fi
 case "$CONTINUE_ANSWER" in
   [nN]|[nN][oO])
     echo ""
@@ -294,14 +451,17 @@ DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
 OMLX_FILE="oMLX-0.5.3-macos26-27.dmg"
 OMLX_SHA256="15a2a74e20bf4518d6f6133af4ecc0f3e4c6610f3127c1612ae6178ef749a4c8"
+OMLX_LABEL="oMLX server"
 
-# Model archives, their SHA256 checksums, and corresponding oMLX model IDs
+# Model archives, their SHA256 checksums, corresponding oMLX model IDs, and display labels
 MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
 MODEL_SHA256_1="adf7f8d832ed994dcc6d09372036b4d12f49a4ccda066179cc64dc2dd113f91d"
 MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
+MODEL_LABEL_1="Local Qwen 3.6 27B 4bit"
 MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
 MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
+MODEL_LABEL_2="MTP draft model"
 
 # oMLX cache configuration (derived from the RAM allowance, default 35 GB)
 OMLX_SSD_CACHE_MAX="50GB"
@@ -325,8 +485,10 @@ cleanup() {
   if [ -d "$DOWNLOAD_DIR" ]; then
     echo "Interrupted — partial downloads preserved in $DOWNLOAD_DIR"
     echo "Re-run this script to resume."
+    emit_error "Interrupted — partial downloads preserved, re-run to resume"
   else
     echo "Interrupted."
+    emit_error "Interrupted"
   fi
 
   kill $(jobs -p) 2>/dev/null || true
@@ -343,18 +505,48 @@ echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 
+# Download while emitting progress events, polling the output file size.
+# The total comes from a HEAD request; with resumed downloads the file size
+# is absolute, so bytes/total stays correct across re-runs.
+download_with_progress_events() {
+  url="$1"
+  output_file="$2"
+  label="$3"
+  file_name=$(basename "$output_file")
+
+  total=$(curl -sIL "$url" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "content-length:" { len = $2 } END { print len + 0 }')
+
+  curl -sSL -C - -o "$output_file" "$url" &
+  download_pid=$!
+  while kill -0 "$download_pid" 2>/dev/null; do
+    bytes=$(stat -f %z "$output_file" 2>/dev/null || echo 0)
+    emit_progress "$file_name" "$bytes" "$total" "$label"
+    sleep 1
+  done
+  if wait "$download_pid"; then
+    emit_progress "$file_name" "$(stat -f %z "$output_file" 2>/dev/null || echo 0)" "$total" "$label"
+    return 0
+  fi
+  return 1
+}
+
 # Function to download a file with retry logic and exponential backoff
-# Usage: download_with_retry <url> <output_file> [max_retries]
+# Usage: download_with_retry <url> <output_file> <label> [max_retries]
 download_with_retry() {
   url="$1"
   output_file="$2"
-  max_retries="${3:-3}"
+  dl_label="$3"
+  max_retries="${4:-3}"
   attempt=1
   delay=2
 
   while [ "$attempt" -le "$max_retries" ]; do
     echo "  Attempt $attempt of $max_retries..."
-    if curl --progress-bar -SL -C - -o "$output_file" "$url"; then
+    if [ "$MACHINE_OUTPUT" = true ]; then
+      if download_with_progress_events "$url" "$output_file" "$dl_label"; then
+        return 0
+      fi
+    elif curl --progress-bar -SL -C - -o "$output_file" "$url"; then
       return 0
     fi
 
@@ -367,6 +559,7 @@ download_with_retry() {
   done
 
   echo "  ERROR: Download failed after $max_retries attempts."
+  emit_error "Download failed after $max_retries attempts"
   return 1
 }
 
@@ -377,6 +570,7 @@ configure_omlx_cache() {
   if [ ! -f "$SETTINGS_FILE" ]; then
     echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
     echo "  Skipping cache configuration."
+    emit_warning "oMLX settings file not found — skipped cache configuration"
     return 1
   fi
 
@@ -444,6 +638,7 @@ create_junie_model_config() {
   if [ ! -f "$SETTINGS_FILE" ]; then
     echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
     echo "  Skipping Junie model config creation."
+    emit_warning "oMLX settings file not found — skipped Junie model config creation"
     return 1
   fi
 
@@ -454,6 +649,7 @@ create_junie_model_config() {
   if [ -z "$SERVER_PORT" ] || [ -z "$API_KEY" ]; then
     echo "  WARNING: Could not read port or API key from oMLX settings."
     echo "  Skipping Junie model config creation."
+    emit_warning "Could not read port or API key from oMLX settings — skipped Junie model config creation"
     return 1
   fi
 
@@ -488,6 +684,7 @@ set_default_junie_model() {
   if [ ! -f "$JUNIE_SETTINGS" ]; then
     echo "  WARNING: Junie settings not found at $JUNIE_SETTINGS"
     echo "  Skipping default model configuration."
+    emit_warning "Junie settings not found — the local model was not set as default"
     return 1
   fi
 
@@ -514,6 +711,7 @@ restart_omlx() {
   if [ -z "$OMLX_CLI" ]; then
     echo "  WARNING: omlx-cli not found."
     echo "  Please restart oMLX manually to apply settings."
+    emit_warning "omlx-cli not found — restart oMLX manually to apply settings"
     return 1
   fi
   echo "  Restarting oMLX server..."
@@ -555,6 +753,7 @@ configure_omlx_models_dir() {
   if [ ! -f "$SETTINGS_FILE" ]; then
     echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
     echo "  Skipping model_dirs configuration."
+    emit_warning "oMLX settings file not found — skipped model_dirs configuration"
     return 1
   fi
 
@@ -586,19 +785,22 @@ configure_omlx_models_dir() {
 # ============================================================
 echo "=== Setting up oMLX ==="
 echo ""
+emit_step_start "omlx" "Setting up oMLX"
 
 install_omlx() {
   # Download oMLX DMG
   echo "  Downloading $OMLX_FILE..."
-  download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE"
+  download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_LABEL"
   echo "  Download complete."
 
   # Verify SHA256 checksum
+  emit_activity "verifying" "$OMLX_FILE" "$OMLX_LABEL"
   actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$OMLX_FILE" | awk '{print $1}')
   if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
     echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
     echo "    Expected: $OMLX_SHA256"
     echo "    Actual:   $actual_sha256"
+    emit_error "SHA256 mismatch for $OMLX_FILE"
     wait_and_exit 1
   fi
   echo "  SHA256 verified: $actual_sha256"
@@ -613,6 +815,7 @@ install_omlx() {
 
   if [ ! -d "$SOURCE" ]; then
     echo "  ERROR: oMLX.app not found inside DMG."
+    emit_error "oMLX.app not found inside DMG"
     hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
     rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
     wait_and_exit 1
@@ -651,27 +854,32 @@ else
   install_omlx
   create_omlx_settings
 fi
+emit_step_done "omlx"
 
 # ============================================================
 # Step 2: Download and install models
 # ============================================================
 echo "=== Installing models ==="
 echo ""
+emit_step_start "models" "Installing models"
 
 # Function to download and verify a model archive
 download_and_verify() {
   archive="$1"
   expected_sha256="$2"
+  archive_label="$3"
 
   echo "Downloading $archive..."
-  download_with_retry "$BASE_URL/$archive" "$DOWNLOAD_DIR/$archive"
+  download_with_retry "$BASE_URL/$archive" "$DOWNLOAD_DIR/$archive" "$archive_label"
   echo "  Download complete. Checking SHA256..."
 
+  emit_activity "verifying" "$archive" "$archive_label"
   actual=$(shasum -a 256 "$DOWNLOAD_DIR/$archive" | awk '{print $1}')
   if [ "$actual" != "$expected_sha256" ]; then
     echo "  ERROR: SHA256 mismatch for $archive"
     echo "    Expected: $expected_sha256"
     echo "    Actual:   $actual"
+    emit_error "SHA256 mismatch for $archive"
     wait_and_exit 1
   fi
   echo "  SHA256 verified: $actual"
@@ -695,6 +903,7 @@ install_model_if_needed() {
   zip_file="$1"
   sha256_sum="$2"
   model_id="$3"
+  model_label="$4"
 
   if model_installed "$model_id"; then
     echo "  Model $model_id is already installed. Skipping."
@@ -704,8 +913,9 @@ install_model_if_needed() {
 
   echo "  Model $model_id is not installed. Proceeding..."
   echo ""
-  download_and_verify "$zip_file" "$sha256_sum"
+  download_and_verify "$zip_file" "$sha256_sum" "$model_label"
   echo "Extracting $zip_file to $MODELS_DIR..."
+  emit_activity "extracting" "$zip_file" "$model_label"
   # Remove leftovers from a previously interrupted extraction
   rm -rf "$MODELS_DIR/models--$model_id"
   unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
@@ -714,24 +924,29 @@ install_model_if_needed() {
   echo ""
 }
 
-install_model_if_needed "$MODEL_ZIP_1" "$MODEL_SHA256_1" "$MODEL_ID_1"
-install_model_if_needed "$MODEL_ZIP_2" "$MODEL_SHA256_2" "$MODEL_ID_2"
+install_model_if_needed "$MODEL_ZIP_1" "$MODEL_SHA256_1" "$MODEL_ID_1" "$MODEL_LABEL_1"
+install_model_if_needed "$MODEL_ZIP_2" "$MODEL_SHA256_2" "$MODEL_ID_2" "$MODEL_LABEL_2"
 
 # Cleanup model downloads
 echo "Removing downloaded archives..."
 rm -rf "$DOWNLOAD_DIR"
+emit_step_done "models"
 
 # ============================================================
 # Step 3: Configure oMLX
 # ============================================================
 echo "=== Configuring oMLX ==="
 echo ""
-configure_omlx_models_dir
-configure_model_settings
-configure_omlx_cache
-restart_omlx
-create_junie_model_config
-set_default_junie_model
+emit_step_start "configure" "Configuring oMLX"
+# These degrade gracefully with warnings; without `|| true` a return 1
+# would abort the script under `set -e`.
+configure_omlx_models_dir || true
+configure_model_settings || true
+configure_omlx_cache || true
+restart_omlx || true
+create_junie_model_config || true
+set_default_junie_model || true
+emit_step_done "configure"
 
 echo ""
 echo "=== Installation complete ==="
@@ -744,4 +959,5 @@ echo "  Total oMLX memory: ${OMLX_MODEL_RAM_GB}GB"
 echo ""
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
+emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$PORT_CANDIDATE"
 wait_and_exit 0
