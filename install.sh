@@ -478,11 +478,14 @@ start_engine() {
 
   # Start via serverctl.sh (the subshell keeps the daemon out of this script's
   # job table so the interrupt handler cannot take it down with the installer).
+  # 3>&- keeps the spawned daemon from inheriting the machine-output event
+  # stream: a consumer reading our stdout would otherwise never see
+  # end-of-stream because the daemon holds the pipe open forever.
   echo "  Starting the engine (log: $ENGINE_DAEMON_LOG)..."
   if [ -f "$ENGINE_CTL" ]; then
-    ( "$ENGINE_CTL" start > /dev/null 2>&1 )
+    ( "$ENGINE_CTL" start > /dev/null 2>&1 3>&- )
   else
-    ( nohup "$ENGINE_BIN" daemon >> "$ENGINE_DAEMON_LOG" 2>&1 & )
+    ( nohup "$ENGINE_BIN" daemon < /dev/null >> "$ENGINE_DAEMON_LOG" 2>&1 3>&- & )
   fi
 
   # Wait for the engine to become ready. serverctl.sh wait polls /status until
