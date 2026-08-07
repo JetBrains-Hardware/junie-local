@@ -82,8 +82,8 @@ ENGINE_RAM_GB=35
 # Junie model configuration
 JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
 JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
-# TODO: calculate it
-JUNIE_MAX_CONTEXT_LENGTH=90000
+# seems to be optimal context length
+JUNIE_MAX_CONTEXT_LENGTH=150000
 
 # ============================================================
 # Machine-readable events (--json): one JSON object per line on stdout
