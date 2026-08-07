@@ -53,7 +53,7 @@ Events:
 {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
 {"event":"config","port":19239,"ram_gb":35,"engine_version":"0.1.1","checks_passed":true}
 {"event":"step_start","id":"engine|models|configure|start","title":"..."}
-{"event":"progress","file":"...","bytes":123,"total":456,"label":"..."}
+{"event":"progress","action":"downloading|extracting","file":"...","bytes":123,"total":456,"label":"..."}
 {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
 {"event":"step_done","id":"engine|models|configure|start"}
 {"event":"warning","message":"..."}

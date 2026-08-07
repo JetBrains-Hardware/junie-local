@@ -91,7 +91,7 @@ JUNIE_MAX_CONTEXT_LENGTH=90000
 #   {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
 #   {"event":"config","port":N,"ram_gb":N,"engine_version":"...","checks_passed":true|false}
 #   {"event":"step_start","id":"engine|models|configure|start","title":"..."}
-#   {"event":"progress","file":"...","bytes":N,"total":N,"label":"..."}
+#   {"event":"progress","action":"downloading|extracting","file":"...","bytes":N,"total":N,"label":"..."}
 #   {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
 #   {"event":"step_done","id":"engine|models|configure|start"}
 #   {"event":"warning","message":"..."}
@@ -124,7 +124,7 @@ emit_step_done() {
 }
 
 emit_progress() {
-  emit_event "\"event\":\"progress\",\"file\":\"$(json_escape "$1")\",\"bytes\":${2:-0},\"total\":${3:-0},\"label\":\"$(json_escape "$4")\""
+  emit_event "\"event\":\"progress\",\"action\":\"${5:-downloading}\",\"file\":\"$(json_escape "$1")\",\"bytes\":${2:-0},\"total\":${3:-0},\"label\":\"$(json_escape "$4")\""
 }
 
 emit_activity() {
@@ -356,6 +356,26 @@ download_with_progress_events() {
   return 1
 }
 
+# Extract a zip while emitting progress events, polling the unpacked size on
+# disk against the archive's uncompressed total (from its central directory).
+extract_with_progress_events() {
+  archive="$1"
+  dest_dir="$2"
+  label="$3"
+  file_name=$(basename "$archive")
+
+  total=$(unzip -l "$archive" 2>/dev/null | tail -1 | awk '{print $1 + 0}')
+
+  unzip -q "$archive" -d "$MODELS_DIR" &
+  unzip_pid=$!
+  while kill -0 "$unzip_pid" 2>/dev/null; do
+    bytes=$(( $(du -sk "$dest_dir" 2>/dev/null | awk '{print $1 + 0}') * 1024 ))
+    emit_progress "$file_name" "$bytes" "$total" "$label" "extracting"
+    sleep 1
+  done
+  wait "$unzip_pid"
+}
+
 # Function to download a file with retry logic and exponential backoff
 # Usage: download_with_retry <url> <output_file> <label> [max_retries]
 download_with_retry() {
@@ -507,7 +527,7 @@ start_engine() {
     done
   else
     waited=0
-    while [ "$waited" -lt 15 ]; do
+    while [ "$waited" -lt 26 ]; do
       if nc -z localhost "$ENGINE_PORT" 2>/dev/null; then
         echo "  Engine is listening on port $ENGINE_PORT."
         return 0
@@ -639,7 +659,11 @@ install_model_if_needed() {
   emit_activity "extracting" "$zip_file" "$model_label"
   # Remove leftovers from a previously interrupted extraction
   rm -rf "$MODELS_DIR/models--$model_id"
-  unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
+  if [ "$MACHINE_OUTPUT" = true ]; then
+    extract_with_progress_events "$DOWNLOAD_DIR/$zip_file" "$MODELS_DIR/models--$model_id" "$model_label"
+  else
+    unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
+  fi
   touch "$(model_completion_marker "$model_id")"
   echo "  Extraction complete."
   echo ""
