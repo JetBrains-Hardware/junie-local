@@ -53,10 +53,29 @@ MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525
 MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
 MODEL_LABEL_2="MTP draft model"
 
-# Contract with the local inference engine, which this script does not install:
-# the port it serves on (the Junie model config below points at it) and the RAM
-# allowance it may spend on weights and KV cache. Nothing here consumes the RAM
-# allowance yet — it is only displayed and reported in the "config" event.
+# Name the engine serves the main model under. The models-- directories above
+# are the Hugging Face cache spelling of the same id.
+ENGINE_MODEL_NAME="mlx-community/Qwen3.6-27B-4bit"
+
+# Inference engine release. Versions are unpacked side by side under versions/
+# and the current symlink points at the one to run.
+ENGINE_VERSION="0.1.0"
+ENGINE_ARCHIVE="junie-mlx-vlm-0.1.0-macos-arm64.tar.gz"
+ENGINE_URL="https://github.com/JetBrains-Hardware/junie-local/releases/download/v0.1.0-test/$ENGINE_ARCHIVE"
+ENGINE_SHA256="c5c93f95546891ac82523b4e1865235b9b3d3cf5b6780a7d3ea0a287e3cfaefc"
+ENGINE_LABEL="Junie MLX VLM engine"
+VERSIONS_DIR="$BASE_DIR/versions"
+ENGINE_DIR="$VERSIONS_DIR/$ENGINE_VERSION"
+CURRENT_LINK="$BASE_DIR/current"
+ENGINE_BIN="$CURRENT_LINK/junie-mlx-vlm"
+ENGINE_LOG="$BASE_DIR/junie-mlx-vlm.log"
+ENGINE_PID_FILE="$BASE_DIR/junie-mlx-vlm.pid"
+
+# The port the engine serves on (the Junie model config below points at it) and
+# the RAM allowance it may spend on weights and KV cache. The engine reads the
+# rest of its settings from $BASE_DIR/server-config.json, which it writes itself
+# on first start. Nothing here consumes the RAM allowance yet — it is only
+# displayed and reported in the "config" event.
 ENGINE_PORT=19239
 ENGINE_RAM_GB=35
 
@@ -70,11 +89,11 @@ JUNIE_MAX_CONTEXT_LENGTH=90000
 # Machine-readable events (--json): one JSON object per line on stdout
 #   {"event":"hello","protocol":1}
 #   {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
-#   {"event":"config","port":N,"ram_gb":N,"checks_passed":true|false}
-#   {"event":"step_start","id":"models|configure","title":"..."}
+#   {"event":"config","port":N,"ram_gb":N,"engine_version":"...","checks_passed":true|false}
+#   {"event":"step_start","id":"engine|models|configure|start","title":"..."}
 #   {"event":"progress","file":"...","bytes":N,"total":N,"label":"..."}
 #   {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
-#   {"event":"step_done","id":"models|configure"}
+#   {"event":"step_done","id":"engine|models|configure|start"}
 #   {"event":"warning","message":"..."}
 #   {"event":"error","message":"..."}
 #   {"event":"done","model_id":"...","port":N}
@@ -250,12 +269,13 @@ echo ""
 echo "=== Install Configuration ==="
 echo ""
 
+print_value "Engine:" "junie-mlx-vlm v${ENGINE_VERSION}" true false ""
 print_value "Models directory:" "$MODELS_DIR" true false ""
 print_value "Inference port:" "$ENGINE_PORT" true false ""
 print_value "RAM allowance:" "${ENGINE_RAM_GB} GB" true false ""
 echo ""
 
-emit_event "\"event\":\"config\",\"port\":$ENGINE_PORT,\"ram_gb\":$ENGINE_RAM_GB,\"checks_passed\":$ALL_OK"
+emit_event "\"event\":\"config\",\"port\":$ENGINE_PORT,\"ram_gb\":$ENGINE_RAM_GB,\"engine_version\":\"$(json_escape "$ENGINE_VERSION")\",\"checks_passed\":$ALL_OK"
 
 if [ "$CHECK_ONLY" = true ]; then
   if [ "$ALL_OK" = true ]; then
@@ -303,6 +323,7 @@ trap 'cleanup 143' TERM
 # Create directories
 echo "Creating directories..."
 mkdir -p "$MODELS_DIR"
+mkdir -p "$VERSIONS_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 
 # Download while emitting progress events, polling the output file size.
@@ -363,6 +384,111 @@ download_with_retry() {
   return 1
 }
 
+# Check if an engine version has been fully unpacked. As with the models, a
+# completion marker is written after unpacking — a version directory without it
+# is a leftover from an interrupted run.
+engine_completion_marker() {
+  echo "$VERSIONS_DIR/.$ENGINE_VERSION.installed"
+}
+
+engine_installed() {
+  [ -x "$ENGINE_DIR/junie-mlx-vlm" ] && [ -f "$(engine_completion_marker)" ]
+}
+
+# Function to download and unpack the inference engine, then point current at it
+install_engine() {
+  if engine_installed; then
+    echo "  Engine v$ENGINE_VERSION is already unpacked. Skipping download."
+  else
+    echo "  Downloading $ENGINE_ARCHIVE..."
+    download_with_retry "$ENGINE_URL" "$DOWNLOAD_DIR/$ENGINE_ARCHIVE" "$ENGINE_LABEL"
+    echo "  Download complete. Checking SHA256..."
+
+    emit_activity "verifying" "$ENGINE_ARCHIVE" "$ENGINE_LABEL"
+    actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$ENGINE_ARCHIVE" | awk '{print $1}')
+    if [ "$actual_sha256" != "$ENGINE_SHA256" ]; then
+      echo "  ERROR: SHA256 mismatch for $ENGINE_ARCHIVE"
+      echo "    Expected: $ENGINE_SHA256"
+      echo "    Actual:   $actual_sha256"
+      emit_error "SHA256 mismatch for $ENGINE_ARCHIVE"
+      wait_and_exit 1
+    fi
+    echo "  SHA256 verified: $actual_sha256"
+
+    echo "  Unpacking to $ENGINE_DIR..."
+    emit_activity "extracting" "$ENGINE_ARCHIVE" "$ENGINE_LABEL"
+    # Remove leftovers from a previously interrupted unpack
+    rm -rf "$ENGINE_DIR"
+    mkdir -p "$ENGINE_DIR"
+    # The archive holds a single junie-mlx-vlm/ directory; strip it so the
+    # binary lands directly in the version directory
+    tar -xzf "$DOWNLOAD_DIR/$ENGINE_ARCHIVE" -C "$ENGINE_DIR" --strip-components=1
+    touch "$(engine_completion_marker)"
+    rm -f "$DOWNLOAD_DIR/$ENGINE_ARCHIVE"
+    echo "  Unpack complete."
+  fi
+
+  # A real directory at current would make ln fail — refuse rather than delete it
+  if [ -d "$CURRENT_LINK" ] && [ ! -L "$CURRENT_LINK" ]; then
+    echo "  ERROR: $CURRENT_LINK is a directory, not a symlink."
+    echo "  Move it out of the way and re-run."
+    emit_error "$CURRENT_LINK is a directory, not a symlink"
+    wait_and_exit 1
+  fi
+
+  echo "  Pointing $CURRENT_LINK at $ENGINE_DIR..."
+  ln -sfn "$ENGINE_DIR" "$CURRENT_LINK"
+  echo ""
+}
+
+# Function to start the engine daemon in the background. The daemon serves the
+# public API and supervises the inference worker itself.
+start_engine() {
+  if [ ! -x "$ENGINE_BIN" ]; then
+    echo "  WARNING: engine binary not found at $ENGINE_BIN"
+    echo "  Skipping engine startup."
+    emit_warning "engine binary not found at $ENGINE_BIN — start it manually"
+    return 1
+  fi
+
+  # Stop an engine from an earlier run so it releases the port
+  if pgrep -f junie-mlx-vlm > /dev/null 2>&1; then
+    echo "  Stopping the running engine..."
+    pkill -f junie-mlx-vlm || true
+    waited=0
+    while [ "$waited" -lt 10 ] && pgrep -f junie-mlx-vlm > /dev/null 2>&1; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
+
+  echo "  Starting the engine (log: $ENGINE_LOG)..."
+  # The subshell keeps the daemon out of this script's job table, so the
+  # interrupt handler cannot take the engine down with the installer.
+  ( nohup "$ENGINE_BIN" daemon >> "$ENGINE_LOG" 2>&1 & echo $! > "$ENGINE_PID_FILE" )
+  engine_pid=$(cat "$ENGINE_PID_FILE" 2>/dev/null || echo "")
+
+  # The daemon binds the port before the worker finishes loading the model, so a
+  # short wait is enough to tell "started" from "died on startup".
+  waited=0
+  while [ "$waited" -lt 15 ]; do
+    if nc -z localhost "$ENGINE_PORT" 2>/dev/null; then
+      echo "  Engine is listening on port $ENGINE_PORT (pid ${engine_pid:-unknown})."
+      return 0
+    fi
+    if [ -n "$engine_pid" ] && ! kill -0 "$engine_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  echo "  WARNING: the engine is not answering on port $ENGINE_PORT yet."
+  echo "  Check the log at $ENGINE_LOG"
+  emit_warning "engine did not start listening on port $ENGINE_PORT — see $ENGINE_LOG"
+  return 1
+}
+
 # Function to create Junie model config file
 create_junie_model_config() {
   JUNIE_MODELS_DIR="$HOME/.junie/models"
@@ -377,7 +503,7 @@ create_junie_model_config() {
   echo "  Creating Junie model config at $JUNIE_CONFIG_FILE..."
   cat > "$JUNIE_CONFIG_FILE" <<EOF
 {
-  "id": "$MODEL_ID_1",
+  "id": "$ENGINE_MODEL_NAME",
   "baseUrl": "http://localhost:$ENGINE_PORT/v1/chat/completions",
   "apiType": "OpenAICompletion",
   "temperature": 0.6,
@@ -409,7 +535,16 @@ set_default_junie_model() {
 }
 
 # ============================================================
-# Step 1: Download and install models
+# Step 1: Install the inference engine
+# ============================================================
+echo "=== Installing the inference engine ==="
+echo ""
+emit_step_start "engine" "Installing the inference engine"
+install_engine
+emit_step_done "engine"
+
+# ============================================================
+# Step 2: Download and install models
 # ============================================================
 echo "=== Installing models ==="
 echo ""
@@ -485,7 +620,7 @@ rm -rf "$DOWNLOAD_DIR"
 emit_step_done "models"
 
 # ============================================================
-# Step 2: Configure Junie
+# Step 3: Configure Junie
 # ============================================================
 echo "=== Configuring Junie ==="
 echo ""
@@ -495,17 +630,29 @@ emit_step_start "configure" "Configuring Junie"
 create_junie_model_config || true
 set_default_junie_model || true
 emit_step_done "configure"
+echo ""
+
+# ============================================================
+# Step 4: Start the inference engine
+# ============================================================
+echo "=== Starting the inference engine ==="
+echo ""
+emit_step_start "start" "Starting the inference engine"
+start_engine || true
+emit_step_done "start"
 
 echo ""
 echo "=== Installation complete ==="
 echo ""
+echo "  Engine installed to: $ENGINE_DIR"
+echo "  Current version:     $CURRENT_LINK -> $ENGINE_DIR"
 echo "  Models installed to: $MODELS_DIR"
+echo "  Engine log:          $ENGINE_LOG"
 echo "  Junie model config:  $HOME/.junie/models/${JUNIE_MODEL_ID}.json"
 echo ""
+echo "  The engine serves http://localhost:$ENGINE_PORT — the first request has"
+echo "  to wait for the model to load."
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
-echo ""
-echo "  NOTE: this script does not install an inference engine — the local model"
-echo "        stays unavailable until a server answers on port $ENGINE_PORT."
 emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT"
 wait_and_exit 0

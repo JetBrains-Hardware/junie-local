@@ -1,15 +1,13 @@
 # Junie Local
 
-Local inference support for Junie on macOS. This repository provides an automated installer that downloads the **Qwen3.6-27B-4bit** model and registers it with Junie so you can run AI locally on your Mac.
-
-> **Note:** the installer does not install an inference engine yet — the previous oMLX integration has been removed and its replacement is not wired up. The downloaded model stays unavailable to Junie until a server answers on port `19239`.
+Local inference support for Junie on macOS. This repository provides an automated installer that sets up the **junie-mlx-vlm** inference engine, downloads the **Qwen3.6-27B-4bit** model, registers it with Junie, and starts the engine in the background.
 
 ## System Requirements
 
 - **macOS 26** or higher
 - **Apple Silicon** processor (M4 or M5 recommended; older Apple Silicon works with a warning)
 - **40 GB RAM** minimum (60 GB recommended for optimal performance)
-- **~20 GB** free disk space for the models
+- **~21 GB** free disk space (~15 GB models, ~0.5 GB engine)
 
 ## Quick Install
 
@@ -28,7 +26,8 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 #### Defaults
 
 - **Models directory:** `~/.local/share/junie-local/models`
-- **Inference port:** `19239` — the port the Junie model config points at.
+- **Engine:** `junie-mlx-vlm` v0.1.0, unpacked under `~/.local/share/junie-local/versions/`.
+- **Inference port:** `19239` — the port the engine serves on and the Junie model config points at.
 - **RAM allowance:** 35 GB the inference engine may spend on weights and KV cache. Reported in the `config` event; not consumed by the installer itself.
 
 ### Command-Line Options
@@ -52,17 +51,17 @@ Events:
 ```
 {"event":"hello","protocol":1}
 {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
-{"event":"config","port":19239,"ram_gb":35,"checks_passed":true}
-{"event":"step_start","id":"models|configure","title":"..."}
+{"event":"config","port":19239,"ram_gb":35,"engine_version":"0.1.0","checks_passed":true}
+{"event":"step_start","id":"engine|models|configure|start","title":"..."}
 {"event":"progress","file":"...","bytes":123,"total":456,"label":"..."}
 {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
-{"event":"step_done","id":"models|configure"}
+{"event":"step_done","id":"engine|models|configure|start"}
 {"event":"warning","message":"..."}
 {"event":"error","message":"..."}
 {"event":"done","model_id":"...","port":19239}
 ```
 
-The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
+The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("Junie MLX VLM engine", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
 
 Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and the configuration that will be used, then run `install.sh --json` to install.
 
@@ -74,18 +73,49 @@ When the script is run from Junie, the terminal window will close automatically 
 
 | Component | Size | Destination |
 |---|---|---|
+| **junie-mlx-vlm 0.1.0** | ~180 MB (~470 MB unpacked) | `~/.local/share/junie-local/versions/0.1.0/` |
 | **Qwen3.6-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
 | **Qwen3.6-27B-MTP-4bit** | ~247 MB | `~/.local/share/junie-local/models/` |
 
-Each archive is downloaded, verified against its SHA256 checksum, and extracted into `~/.local/share/junie-local/models/`. A marker file (`.models--<id>.installed`) records a completed extraction, so re-running the installer skips models that are already in place.
+Every archive is downloaded, verified against its SHA256 checksum, and unpacked. A marker file records each completed unpack (`.models--<id>.installed` for models, `.<version>.installed` for the engine), so re-running the installer skips what is already in place.
+
+Resulting layout:
+
+```
+~/.local/share/junie-local/
+├── current -> versions/0.1.0
+├── versions/0.1.0/
+│   ├── junie-mlx-vlm          # the engine binary
+│   └── _internal/
+├── models/
+├── server-config.json         # written by the engine on first start
+├── junie-mlx-vlm.log
+└── junie-mlx-vlm.pid
+```
 
 ## Inference Engine
 
-None is installed. The engine that serves the model over an OpenAI-compatible API is expected to listen on port `19239` (`ENGINE_PORT` in `install.sh`) — that is the only contract between it and the Junie model config this script writes.
+**junie-mlx-vlm** serves an OpenAI-compatible API on port `19239` and supervises the inference worker itself. Engine releases are unpacked side by side under `versions/`, and `current` symlinks the one to run — so an upgrade is a new directory plus a symlink swap.
+
+The installer starts it as the last step:
+
+```bash
+nohup ~/.local/share/junie-local/current/junie-mlx-vlm daemon >> ~/.local/share/junie-local/junie-mlx-vlm.log 2>&1 &
+```
+
+It is detached from the installer, so it keeps running after the script (and the terminal) exits; its pid is recorded in `junie-mlx-vlm.pid`. If an engine is already running, the installer stops it first so the new version takes the port. The installer waits up to 15 seconds for the port to open — the model itself keeps loading in the background after that, so the first request through Junie has to wait for it.
+
+The engine takes no command-line options: everything comes from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. It needs the models to be in place before it can serve, which is why the installer downloads them first.
+
+Stop it manually with:
+
+```bash
+kill "$(cat ~/.local/share/junie-local/junie-mlx-vlm.pid)"
+```
 
 ## Junie Model Configuration
 
-The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing at `http://localhost:19239/v1/chat/completions` (no API key), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
+The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing at `http://localhost:19239/v1/chat/completions` (no API key), with the model id the engine serves (`mlx-community/Qwen3.6-27B-4bit`), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
 
 ## Resumable Downloads with Automatic Retries
 
