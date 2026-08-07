@@ -35,14 +35,46 @@ if [ "$MACHINE_OUTPUT" = true ]; then
 fi
 
 # ============================================================
+# Configuration
+# ============================================================
+
+BASE_URL="https://download.jetbrains.com/resources/junie-local"
+BASE_DIR="$HOME/.local/share/junie-local"
+MODELS_DIR="$BASE_DIR/models"
+DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
+
+# Model archives, their SHA256 checksums, model IDs, and display labels
+MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
+MODEL_SHA256_1="adf7f8d832ed994dcc6d09372036b4d12f49a4ccda066179cc64dc2dd113f91d"
+MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
+MODEL_LABEL_1="Local Qwen 3.6 27B 4bit"
+MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
+MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
+MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
+MODEL_LABEL_2="MTP draft model"
+
+# Contract with the local inference engine, which this script does not install:
+# the port it serves on (the Junie model config below points at it) and the RAM
+# allowance it may spend on weights and KV cache. Nothing here consumes the RAM
+# allowance yet — it is only displayed and reported in the "config" event.
+ENGINE_PORT=19239
+ENGINE_RAM_GB=35
+
+# Junie model configuration
+JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
+JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
+# TODO: calculate it
+JUNIE_MAX_CONTEXT_LENGTH=90000
+
+# ============================================================
 # Machine-readable events (--json): one JSON object per line on stdout
 #   {"event":"hello","protocol":1}
-#   {"event":"check","name":"os|cpu|ram|omlx","status":"ok|warn|fail","value":"...","requirement":"..."}
-#   {"event":"config","port":N,"ram_gb":N,"omlx_installed":true|false,"omlx_version":"...","checks_passed":true|false}
-#   {"event":"step_start","id":"omlx|models|configure","title":"..."}
+#   {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
+#   {"event":"config","port":N,"ram_gb":N,"checks_passed":true|false}
+#   {"event":"step_start","id":"models|configure","title":"..."}
 #   {"event":"progress","file":"...","bytes":N,"total":N,"label":"..."}
 #   {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
-#   {"event":"step_done","id":"omlx|models|configure"}
+#   {"event":"step_done","id":"models|configure"}
 #   {"event":"warning","message":"..."}
 #   {"event":"error","message":"..."}
 #   {"event":"done","model_id":"...","port":N}
@@ -127,84 +159,6 @@ CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")
 # Total memory in GB
 MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
 MEM_GB=$((MEM_BYTES / 1073741824))
-
-# Function to compare two version strings (returns 0 if v1 >= v2)
-version_ge() {
-  v1="$1"
-  v2="$2"
-  if [ "$v1" = "$v2" ]; then
-    return 0
-  fi
-  # Use sort -V to compare versions
-  highest=$(printf '%s\n%s\n' "$v1" "$v2" | sort -V | tail -n 1)
-  [ "$v1" = "$highest" ]
-}
-
-# oMLX constants (needed early for detection)
-OMLX_SETTINGS="$HOME/.omlx/settings.json"
-OMLX_MIN_VERSION="0.5.2"
-OMLX_TARGET_VERSION="0.5.3"
-OMLX_INSTALL_DIR="$HOME/Applications"
-
-# Detect existing oMLX installation in /Applications or ~/Applications
-find_omlx_app() {
-  if [ -d "/Applications/oMLX.app" ]; then
-    echo "/Applications/oMLX.app"
-  elif [ -d "$HOME/Applications/oMLX.app" ]; then
-    echo "$HOME/Applications/oMLX.app"
-  else
-    echo ""
-  fi
-}
-
-OMLX_APP=$(find_omlx_app)
-
-# Detect existing oMLX installation
-OMLX_INSTALLED=false
-OMLX_NEEDS_UPDATE=false
-OMLX_EXISTING_VERSION=""
-OMLX_EXISTING_PORT=""
-
-if [ -f "$OMLX_SETTINGS" ]; then
-  OMLX_EXISTING_PORT=$(plutil -extract server.port raw "$OMLX_SETTINGS" 2>/dev/null || echo "")
-fi
-
-if [ -n "$OMLX_APP" ] && [ -n "$OMLX_EXISTING_PORT" ]; then
-  OMLX_EXISTING_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$OMLX_APP/Contents/Info.plist" 2>/dev/null || echo "unknown")
-  OMLX_INSTALLED=true
-  # Check if version meets minimum requirement
-  if [ "$OMLX_EXISTING_VERSION" != "unknown" ]; then
-    if ! version_ge "$OMLX_EXISTING_VERSION" "$OMLX_MIN_VERSION"; then
-      OMLX_NEEDS_UPDATE=true
-    fi
-  fi
-fi
-
-# Find first free port starting from 8000
-check_port_free() {
-  # Uses nc (netcat) to test if a port is listening
-  # Returns 0 if free, 1 if in use
-  ! nc -z localhost "$1" 2>/dev/null
-}
-
-if [ "$OMLX_INSTALLED" = true ]; then
-  # Use existing oMLX port
-  PORT_CANDIDATE="$OMLX_EXISTING_PORT"
-else
-  # Find first free port
-  PORT_CANDIDATE=8000
-  while [ "$PORT_CANDIDATE" -lt 9000 ]; do
-    if check_port_free "$PORT_CANDIDATE"; then
-      break
-    fi
-    PORT_CANDIDATE=$((PORT_CANDIDATE + 1))
-  done
-  if [ "$PORT_CANDIDATE" -ge 9000 ]; then
-    echo "ERROR: No free port found in range 8000-8999."
-    emit_error "No free port found in range 8000-8999"
-    wait_and_exit 1
-  fi
-fi
 
 # ============================================================
 # System info summary: evaluate & display
@@ -292,40 +246,16 @@ print_value "RAM:" "${MEM_GB} GB" "$RAM_OK" "$RAM_WARN" "minimum 40 GB, 60 GB re
 emit_check "ram" "$(check_status "$RAM_OK" "$RAM_WARN")" "${MEM_GB} GB" "minimum 40 GB, 60 GB recommended"
 echo ""
 
-# RAM allowance for inference (weights + KV cache)
-# 17 GB is reserved for model weights, the rest goes to the hot cache
-OMLX_MODEL_RAM_GB=35
-
-# oMLX status — in System Information if installed, in Install Configuration if not
-# An installed oMLX older than the minimum version is a hard failure:
-# the user must update it manually before re-running the installer.
-if [ "$OMLX_INSTALLED" = true ]; then
-  if [ "$OMLX_NEEDS_UPDATE" = true ]; then
-    ALL_OK=false
-    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" false false "v${OMLX_MIN_VERSION} or higher — please update oMLX manually and re-run"
-    emit_check "omlx" "fail" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" "v${OMLX_MIN_VERSION} or higher — please update oMLX manually and re-run"
-  else
-    print_value "oMLX:" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" true false ""
-    emit_check "omlx" "ok" "v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}" ""
-  fi
-fi
-echo ""
-
 # Install Configuration section
 echo "=== Install Configuration ==="
 echo ""
 
-if [ "$OMLX_INSTALLED" = false ]; then
-  print_value "oMLX:" "not installed" true true "This script will install version v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
-fi
-print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
-if [ "$OMLX_INSTALLED" = true ]; then
-  echo ""
-  echo "  Note: existing oMLX cache settings will be updated to match the RAM allowance."
-fi
+print_value "Models directory:" "$MODELS_DIR" true false ""
+print_value "Inference port:" "$ENGINE_PORT" true false ""
+print_value "RAM allowance:" "${ENGINE_RAM_GB} GB" true false ""
 echo ""
 
-emit_event "\"event\":\"config\",\"port\":$PORT_CANDIDATE,\"ram_gb\":$OMLX_MODEL_RAM_GB,\"omlx_installed\":$OMLX_INSTALLED,\"omlx_version\":\"$(json_escape "$OMLX_EXISTING_VERSION")\",\"checks_passed\":$ALL_OK"
+emit_event "\"event\":\"config\",\"port\":$ENGINE_PORT,\"ram_gb\":$ENGINE_RAM_GB,\"checks_passed\":$ALL_OK"
 
 if [ "$CHECK_ONLY" = true ]; then
   if [ "$ALL_OK" = true ]; then
@@ -343,39 +273,6 @@ if [ "$ALL_OK" = false ]; then
   emit_error "Some system requirements are not met. Installation cannot proceed."
   wait_and_exit 1
 fi
-
-# Configuration
-BASE_URL="https://download.jetbrains.com/resources/junie-local"
-BASE_DIR="$HOME/.local/share/junie-local"
-MODELS_DIR="$BASE_DIR/models"
-DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
-
-# oMLX DMG
-OMLX_URL="https://github.com/jundot/omlx/releases/download/v0.5.3/oMLX-0.5.3-macos26-27.dmg"
-OMLX_FILE="oMLX-0.5.3-macos26-27.dmg"
-OMLX_SHA256="15a2a74e20bf4518d6f6133af4ecc0f3e4c6610f3127c1612ae6178ef749a4c8"
-OMLX_LABEL="oMLX server"
-
-# Model archives, their SHA256 checksums, corresponding oMLX model IDs, and display labels
-MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
-MODEL_SHA256_1="adf7f8d832ed994dcc6d09372036b4d12f49a4ccda066179cc64dc2dd113f91d"
-MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
-MODEL_LABEL_1="Local Qwen 3.6 27B 4bit"
-MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
-MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
-MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
-MODEL_LABEL_2="MTP draft model"
-
-# oMLX cache configuration (derived from the RAM allowance, default 35 GB)
-OMLX_SSD_CACHE_MAX="50GB"
-OMLX_HOT_CACHE_MAX="$((OMLX_MODEL_RAM_GB - 17))GB"
-
-# Junie model configuration
-JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
-JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
-# TODO: calculate it
-JUNIE_MAX_CONTEXT_LENGTH=90000
-
 
 # Cleanup function — kills child processes on interrupt
 cleanup() {
@@ -466,95 +363,10 @@ download_with_retry() {
   return 1
 }
 
-# Function to configure oMLX cache settings
-configure_omlx_cache() {
-  SETTINGS_FILE="$HOME/.omlx/settings.json"
-
-  if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
-    echo "  Skipping cache configuration."
-    emit_warning "oMLX settings file not found — skipped cache configuration"
-    return 1
-  fi
-
-  echo "  Configuring oMLX cache (hot: $OMLX_HOT_CACHE_MAX, SSD: $OMLX_SSD_CACHE_MAX)..."
-  plutil -replace "cache.hot_cache_max_size" -string "$OMLX_HOT_CACHE_MAX" "$SETTINGS_FILE"
-  plutil -replace "cache.ssd_cache_max_size" -string "$OMLX_SSD_CACHE_MAX" "$SETTINGS_FILE"
-  echo "  Cache configuration updated."
-  return 0
-}
-
-# Function to generate a random API key for oMLX
-generate_api_key() {
-  # Generate a random 24-character hex string
-  printf 'sk-omlx-%s' "$(head -c 12 /dev/urandom | xxd -p)"
-}
-
-# Function to create oMLX settings.json for fresh installations
-create_omlx_settings() {
-  SETTINGS_DIR="$HOME/.omlx"
-  SETTINGS_FILE="$SETTINGS_DIR/settings.json"
-
-  if [ -f "$SETTINGS_FILE" ]; then
-    echo "  oMLX settings already exist at $SETTINGS_FILE. Skipping."
-    return 0
-  fi
-
-  # Create .omlx directory if it doesn't exist
-  mkdir -p "$SETTINGS_DIR"
-
-  # Generate a random API key
-  OMLX_API_KEY=$(generate_api_key)
-
-  echo "  Creating oMLX settings at $SETTINGS_FILE..."
-  cat > "$SETTINGS_FILE" <<EOF
-{
-  "server": {
-    "port": $PORT_CANDIDATE
-  },
-  "model": {
-    "model_dirs": [
-      "$HOME/.omlx/models",
-      "$MODELS_DIR"
-    ],
-    "model_dir": "$HOME/.omlx/models"
-  },
-  "cache": {
-    "ssd_cache_max_size": "$OMLX_SSD_CACHE_MAX",
-    "hot_cache_max_size": "$OMLX_HOT_CACHE_MAX"
-  },
-  "auth": {
-    "api_key": "$OMLX_API_KEY"
-  }
-}
-EOF
-  echo "  oMLX settings created."
-  return 0
-}
-
 # Function to create Junie model config file
 create_junie_model_config() {
   JUNIE_MODELS_DIR="$HOME/.junie/models"
   JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/${JUNIE_MODEL_ID}.json"
-  SETTINGS_FILE="$HOME/.omlx/settings.json"
-
-  if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
-    echo "  Skipping Junie model config creation."
-    emit_warning "oMLX settings file not found — skipped Junie model config creation"
-    return 1
-  fi
-
-  # Read port and API key from oMLX settings
-  SERVER_PORT=$(plutil -extract "server.port" raw "$SETTINGS_FILE" 2>/dev/null || true)
-  API_KEY=$(plutil -extract "auth.api_key" raw "$SETTINGS_FILE" 2>/dev/null || true)
-
-  if [ -z "$SERVER_PORT" ] || [ -z "$API_KEY" ]; then
-    echo "  WARNING: Could not read port or API key from oMLX settings."
-    echo "  Skipping Junie model config creation."
-    emit_warning "Could not read port or API key from oMLX settings — skipped Junie model config creation"
-    return 1
-  fi
 
   # Create ~/.junie/models directory if it doesn't exist
   if [ ! -d "$JUNIE_MODELS_DIR" ]; then
@@ -566,9 +378,8 @@ create_junie_model_config() {
   cat > "$JUNIE_CONFIG_FILE" <<EOF
 {
   "id": "$MODEL_ID_1",
-  "baseUrl": "http://localhost:$SERVER_PORT/v1/chat/completions",
+  "baseUrl": "http://localhost:$ENGINE_PORT/v1/chat/completions",
   "apiType": "OpenAICompletion",
-  "apiKey": "$API_KEY",
   "temperature": 0.6,
   "maxContextLength": $JUNIE_MAX_CONTEXT_LENGTH,
   "extraBody": {
@@ -597,170 +408,8 @@ set_default_junie_model() {
   return 0
 }
 
-# Function to find oMLX CLI in either /Applications or ~/Applications
-find_omlx_cli() {
-  if [ -x "/Applications/oMLX.app/Contents/MacOS/omlx-cli" ]; then
-    echo "/Applications/oMLX.app/Contents/MacOS/omlx-cli"
-  elif [ -x "$HOME/Applications/oMLX.app/Contents/MacOS/omlx-cli" ]; then
-    echo "$HOME/Applications/oMLX.app/Contents/MacOS/omlx-cli"
-  else
-    echo ""
-  fi
-}
-
-# Function to restart oMLX server to load new settings
-restart_omlx() {
-  OMLX_CLI=$(find_omlx_cli)
-  if [ -z "$OMLX_CLI" ]; then
-    echo "  WARNING: omlx-cli not found."
-    echo "  Please restart oMLX manually to apply settings."
-    emit_warning "omlx-cli not found — restart oMLX manually to apply settings"
-    return 1
-  fi
-  echo "  Restarting oMLX server..."
-  "$OMLX_CLI" restart
-  echo "  oMLX server restarted."
-  return 0
-}
-
-# Function to configure model settings for Qwen3.6-27B-4bit
-configure_model_settings() {
-  MODEL_SETTINGS_FILE="$HOME/.omlx/model_settings.json"
-  MODEL_ID="$MODEL_ID_1"
-  # Dots in the model ID must be escaped in plutil key paths
-  KEY_PATH="models.$(printf '%s' "$MODEL_ID" | sed 's/\./\\./g')"
-
-  if [ ! -f "$MODEL_SETTINGS_FILE" ]; then
-    echo "  Creating model_settings.json at $MODEL_SETTINGS_FILE..."
-    echo '{"version": 1, "models": {}}' > "$MODEL_SETTINGS_FILE"
-  fi
-
-  # Check if model config already exists
-  EXISTING=$(plutil -extract "$KEY_PATH" json -o - "$MODEL_SETTINGS_FILE" 2>/dev/null || true)
-  if [ -n "$EXISTING" ]; then
-    echo "  Model settings for $MODEL_ID already configured."
-    return 0
-  fi
-
-  # Write the model configuration
-  echo "  Configuring model settings for $MODEL_ID..."
-  plutil -insert "$KEY_PATH" -json '{"force_sampling":false,"enable_thinking":false,"thinking_budget_enabled":false,"guided_grammar_enabled":false,"turboquant_kv_enabled":false,"turboquant_kv_bits":4.0,"turboquant_skip_last":true,"specprefill_enabled":false,"dflash_enabled":false,"dflash_draft_quant_enabled":false,"dflash_in_memory_cache":true,"dflash_in_memory_cache_max_entries":4,"dflash_in_memory_cache_max_bytes":8589934592,"dflash_ssd_cache":false,"dflash_ssd_cache_max_bytes":21474836480,"mtp_enabled":false,"vlm_mtp_enabled":true,"vlm_mtp_draft_model":"'"$MODEL_ID_2"'","vlm_mtp_draft_block_size":4,"is_pinned":false,"is_default":false,"is_hidden":false,"is_favorite":false,"trust_remote_code":false}' -r "$MODEL_SETTINGS_FILE"
-  echo "  Model settings for $MODEL_ID configured."
-  return 0
-}
-
-# Function to add MODELS_DIR to oMLX model_dirs if not already present
-configure_omlx_models_dir() {
-  SETTINGS_FILE="$HOME/.omlx/settings.json"
-
-  if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "  WARNING: oMLX settings file not found at $SETTINGS_FILE"
-    echo "  Skipping model_dirs configuration."
-    emit_warning "oMLX settings file not found — skipped model_dirs configuration"
-    return 1
-  fi
-
-  # Check if MODELS_DIR is already in model_dirs
-  # Extract actual model_dirs entries via plutil (raw output is already unescaped)
-  i=0
-  while true; do
-    DIR=$(plutil -extract "model.model_dirs.$i" raw "$SETTINGS_FILE" 2>/dev/null || true)
-    if [ -z "$DIR" ]; then
-      break
-    fi
-    if [ "$DIR" = "$MODELS_DIR" ]; then
-      echo "  $MODELS_DIR is already in oMLX model_dirs."
-      return 0
-    fi
-    i=$((i + 1))
-  done
-
-  # Append MODELS_DIR to model_dirs using plutil -append
-  echo "  Adding $MODELS_DIR to oMLX model_dirs..."
-  plutil -insert model.model_dirs -string "$MODELS_DIR" -append -r "$SETTINGS_FILE"
-  echo "  Added $MODELS_DIR to oMLX model_dirs."
-  return 0
-}
-
-
 # ============================================================
-# Step 1: oMLX setup
-# ============================================================
-echo "=== Setting up oMLX ==="
-echo ""
-emit_step_start "omlx" "Setting up oMLX"
-
-install_omlx() {
-  # Download oMLX DMG
-  echo "  Downloading $OMLX_FILE..."
-  download_with_retry "$OMLX_URL" "$DOWNLOAD_DIR/$OMLX_FILE" "$OMLX_LABEL"
-  echo "  Download complete."
-
-  # Verify SHA256 checksum
-  emit_activity "verifying" "$OMLX_FILE" "$OMLX_LABEL"
-  actual_sha256=$(shasum -a 256 "$DOWNLOAD_DIR/$OMLX_FILE" | awk '{print $1}')
-  if [ "$actual_sha256" != "$OMLX_SHA256" ]; then
-    echo "  ERROR: SHA256 mismatch for $OMLX_FILE"
-    echo "    Expected: $OMLX_SHA256"
-    echo "    Actual:   $actual_sha256"
-    emit_error "SHA256 mismatch for $OMLX_FILE"
-    wait_and_exit 1
-  fi
-  echo "  SHA256 verified: $actual_sha256"
-
-  # Mount DMG to a temporary location
-  MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/omlx-install.XXXXXX")
-  echo "  Mounting oMLX DMG..."
-  hdiutil attach "$DOWNLOAD_DIR/$OMLX_FILE" -nobrowse -readonly -mountpoint "$MOUNT_DIR" > /dev/null
-
-  SOURCE="$MOUNT_DIR/oMLX.app"
-  DESTINATION="$OMLX_INSTALL_DIR/oMLX.app"
-
-  if [ ! -d "$SOURCE" ]; then
-    echo "  ERROR: oMLX.app not found inside DMG."
-    emit_error "oMLX.app not found inside DMG"
-    hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
-    rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
-    wait_and_exit 1
-  fi
-
-  # Create user Applications directory if needed
-  mkdir -p "$OMLX_INSTALL_DIR"
-
-  # Remove previous version if it exists
-  if [ -e "$DESTINATION" ]; then
-    echo "  Removing existing version..."
-    rm -rf "$DESTINATION"
-  fi
-
-  # Copy oMLX.app to user Applications
-  echo "  Installing oMLX to $DESTINATION..."
-  /usr/bin/ditto "$SOURCE" "$DESTINATION"
-
-  # Unmount DMG and clean up
-  hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
-  rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
-  rm -f "$DOWNLOAD_DIR/$OMLX_FILE"
-
-  echo "  oMLX installed successfully."
-  echo ""
-}
-
-if [ "$OMLX_INSTALLED" = true ]; then
-  # Reuse existing oMLX (an outdated version already failed the system check above)
-  echo "  Reusing existing oMLX v${OMLX_EXISTING_VERSION} on port ${OMLX_EXISTING_PORT}."
-  echo ""
-else
-  # Fresh install
-  echo "  Installing oMLX v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}..."
-  echo ""
-  install_omlx
-  create_omlx_settings
-fi
-emit_step_done "omlx"
-
-# ============================================================
-# Step 2: Download and install models
+# Step 1: Download and install models
 # ============================================================
 echo "=== Installing models ==="
 echo ""
@@ -801,7 +450,7 @@ model_installed() {
   [ -d "$MODELS_DIR/models--$model_id" ] && [ -f "$(model_completion_marker "$model_id")" ]
 }
 
-# Download and install each model only if not already present in oMLX
+# Download and install each model only if not already present
 install_model_if_needed() {
   zip_file="$1"
   sha256_sum="$2"
@@ -836,17 +485,13 @@ rm -rf "$DOWNLOAD_DIR"
 emit_step_done "models"
 
 # ============================================================
-# Step 3: Configure oMLX
+# Step 2: Configure Junie
 # ============================================================
-echo "=== Configuring oMLX ==="
+echo "=== Configuring Junie ==="
 echo ""
-emit_step_start "configure" "Configuring oMLX"
+emit_step_start "configure" "Configuring Junie"
 # These degrade gracefully with warnings; without `|| true` a return 1
 # would abort the script under `set -e`.
-configure_omlx_models_dir || true
-configure_model_settings || true
-configure_omlx_cache || true
-restart_omlx || true
 create_junie_model_config || true
 set_default_junie_model || true
 emit_step_done "configure"
@@ -855,12 +500,12 @@ echo ""
 echo "=== Installation complete ==="
 echo ""
 echo "  Models installed to: $MODELS_DIR"
-echo "  oMLX SSD cache: $OMLX_SSD_CACHE_MAX"
-echo "  oMLX hot cache: $OMLX_HOT_CACHE_MAX"
-echo "  Model memory: ~17 GB"
-echo "  Total oMLX memory: ${OMLX_MODEL_RAM_GB}GB"
+echo "  Junie model config:  $HOME/.junie/models/${JUNIE_MODEL_ID}.json"
 echo ""
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
-emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$PORT_CANDIDATE"
+echo ""
+echo "  NOTE: this script does not install an inference engine — the local model"
+echo "        stays unavailable until a server answers on port $ENGINE_PORT."
+emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT"
 wait_and_exit 0

@@ -1,13 +1,15 @@
 # Junie Local
 
-Local inference support for Junie on macOS. This repository provides an automated installer that sets up **oMLX** and downloads the **Qwen3.6-27B-4bit** model so you can run AI locally on your Mac.
+Local inference support for Junie on macOS. This repository provides an automated installer that downloads the **Qwen3.6-27B-4bit** model and registers it with Junie so you can run AI locally on your Mac.
+
+> **Note:** the installer does not install an inference engine yet — the previous oMLX integration has been removed and its replacement is not wired up. The downloaded model stays unavailable to Junie until a server answers on port `19239`.
 
 ## System Requirements
 
 - **macOS 26** or higher
 - **Apple Silicon** processor (M4 or M5 recommended; older Apple Silicon works with a warning)
 - **40 GB RAM** minimum (60 GB recommended for optimal performance)
-- **~65 GB** free disk space (~15 GB for models, up to 50 GB for the SSD cache)
+- **~20 GB** free disk space for the models
 
 ## Quick Install
 
@@ -25,8 +27,9 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 
 #### Defaults
 
-- **RAM allowance:** 35 GB for oMLX (17 GB for the model, the rest for the hot cache).
-- **Port:** the first free port in 8000-8999 for a fresh oMLX install; an existing oMLX installation keeps its configured port.
+- **Models directory:** `~/.local/share/junie-local/models`
+- **Inference port:** `19239` — the port the Junie model config points at.
+- **RAM allowance:** 35 GB the inference engine may spend on weights and KV cache. Reported in the `config` event; not consumed by the installer itself.
 
 ### Command-Line Options
 
@@ -48,18 +51,18 @@ Events:
 
 ```
 {"event":"hello","protocol":1}
-{"event":"check","name":"os|cpu|ram|omlx","status":"ok|warn|fail","value":"...","requirement":"..."}
-{"event":"config","port":8000,"ram_gb":35,"omlx_installed":false,"omlx_version":"","checks_passed":true}
-{"event":"step_start","id":"omlx|models|configure","title":"..."}
+{"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
+{"event":"config","port":19239,"ram_gb":35,"checks_passed":true}
+{"event":"step_start","id":"models|configure","title":"..."}
 {"event":"progress","file":"...","bytes":123,"total":456,"label":"..."}
 {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
-{"event":"step_done","id":"omlx|models|configure"}
+{"event":"step_done","id":"models|configure"}
 {"event":"warning","message":"..."}
 {"event":"error","message":"..."}
-{"event":"done","model_id":"...","port":8000}
+{"event":"done","model_id":"...","port":19239}
 ```
 
-The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("oMLX server", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
+The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
 
 Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and the configuration that will be used, then run `install.sh --json` to install.
 
@@ -71,29 +74,18 @@ When the script is run from Junie, the terminal window will close automatically 
 
 | Component | Size | Destination |
 |---|---|---|
-| **oMLX 0.5.3** | ~50 MB (DMG) | `~/Applications/oMLX.app` |
 | **Qwen3.6-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
 | **Qwen3.6-27B-MTP-4bit** | ~247 MB | `~/.local/share/junie-local/models/` |
 
-The models are extracted into `~/.local/share/junie-local/models/` and registered with oMLX automatically.
+Each archive is downloaded, verified against its SHA256 checksum, and extracted into `~/.local/share/junie-local/models/`. A marker file (`.models--<id>.installed`) records a completed extraction, so re-running the installer skips models that are already in place.
 
-## oMLX
+## Inference Engine
 
-The installer downloads and configures **[oMLX](https://omlx.ai)** — a local ML inference engine for Apple Silicon. oMLX manages model loading, caching, and serves an OpenAI-compatible API that Junie connects to.
-
-- **Website:** [omlx.ai](https://omlx.ai)
-- **GitHub Releases:** [jundot/omlx](https://github.com/jundot/omlx/releases)
-
-If oMLX is already installed (in `/Applications` or `~/Applications`), the installer reuses it and its configured port. Version **0.5.2** or higher is required — if your installation is older, the installer exits and asks you to update oMLX manually before re-running.
-
-After installation, oMLX is configured with:
-- **SSD cache:** 50 GB
-- **Hot cache:** 18 GB (the 35 GB RAM allowance minus the 17 GB reserved for the model)
-- **Custom model settings** optimized for Qwen3.6-27B-4bit with MTP (Multi-Token Prediction) support
+None is installed. The engine that serves the model over an OpenAI-compatible API is expected to listen on port `19239` (`ENGINE_PORT` in `install.sh`) — that is the only contract between it and the Junie model config this script writes.
 
 ## Junie Model Configuration
 
-The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing to the local oMLX server, and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
+The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing at `http://localhost:19239/v1/chat/completions` (no API key), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
 
 ## Resumable Downloads with Automatic Retries
 
