@@ -61,7 +61,7 @@ Events:
 {"event":"done","model_id":"...","port":19239,"model_path":"...","label":"..."}
 ```
 
-The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("Junie MLX VLM engine", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
+The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("inference engine", "Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
 
 Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and the configuration that will be used, then run `install.sh --json` to install.
 
