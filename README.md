@@ -13,35 +13,27 @@ Local inference support for Junie on macOS. This repository provides an automate
 
 ### Running from Junie
 
-The installer is designed to be run with `sh` from within Junie. No parameters are passed from Junie — all user interaction and logic is handled inside the script itself.
+The installer is designed to be run with `sh` from within Junie. No parameters are passed from Junie — all install logic is handled inside the script itself.
 
 ### Running Manually
 
-The installer is interactive (it asks for confirmation and lets you customize the port and RAM allowance), so it needs a terminal. Download it first, then run it:
+The installer is non-interactive and takes no configuration: it always uses its built-in defaults. Download it first, then run it:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh && sh /tmp/junie-local-install.sh
 ```
 
-#### Memory Parameter
+#### Defaults
 
-By default, the script allocates **35 GB** of RAM to oMLX. You can adjust this by passing the desired value as the first argument:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh && sh /tmp/junie-local-install.sh 48
-```
-
-This allocates 48 GB to oMLX (17 GB for the model, the rest for hot/SSD caches). You can also change the value interactively by answering `n` at the confirmation prompt.
+- **RAM allowance:** 35 GB for oMLX (17 GB for the model, the rest for the hot cache).
+- **Port:** the first free port in 8000-8999 for a fresh oMLX install; an existing oMLX installation keeps its configured port.
 
 ### Command-Line Options
 
 ```
-sh install.sh [RAM_GB] [options]
-  --ram N       RAM allowance in GB for inference (default: 35, min 18); same as the positional argument
-  --port N      Port for a fresh oMLX install (default: first free port in 8000-8999; ignored if oMLX is already installed)
-  --yes, -y     Skip the confirmation prompt
+sh install.sh [options]
   --check-only  Report system information and install configuration, then exit (exit code 0 if all hard requirements are met, 1 otherwise)
-  --json        Emit machine-readable events on stdout, human output on stderr (implies --yes)
+  --json        Emit machine-readable events on stdout, human output on stderr
   --help, -h    Show this help
 ```
 
@@ -50,8 +42,7 @@ sh install.sh [RAM_GB] [options]
 `--json` exists so that UIs (such as Junie's built-in installer screen) can embed the script and render its progress natively while this script remains the single source of truth for all install logic. In this mode:
 
 - stdout carries exactly one JSON event per line; all human-oriented output goes to stderr.
-- No prompts are shown: the confirmation is skipped and no "press any key" pause happens on exit.
-- Configuration is passed via `--ram`/`--port` instead of interactive customization.
+- No "press any key" pause happens on exit.
 
 Events:
 
@@ -68,9 +59,9 @@ Events:
 {"event":"done","model_id":"...","port":8000}
 ```
 
-The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the effective settings and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("oMLX server", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
+The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("oMLX server", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
 
-Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and defaults, collect settings in the UI, then run `install.sh --json --ram N [--port N]`.
+Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and the configuration that will be used, then run `install.sh --json` to install.
 
 ### Note on Terminal Behavior
 
@@ -97,7 +88,7 @@ If oMLX is already installed (in `/Applications` or `~/Applications`), the insta
 
 After installation, oMLX is configured with:
 - **SSD cache:** 50 GB
-- **Hot cache:** RAM allocation minus 17 GB (reserved for the model)
+- **Hot cache:** 18 GB (the 35 GB RAM allowance minus the 17 GB reserved for the model)
 - **Custom model settings** optimized for Qwen3.6-27B-4bit with MTP (Multi-Token Prediction) support
 
 ## Junie Model Configuration

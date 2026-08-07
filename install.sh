@@ -9,34 +9,22 @@ PROTOCOL_VERSION=1
 
 MACHINE_OUTPUT=false
 CHECK_ONLY=false
-ASSUME_YES=false
-ARG_RAM=""
-ARG_PORT=""
 
 usage() {
-  echo "Usage: install.sh [RAM_GB] [options]"
+  echo "Usage: install.sh [options]"
   echo ""
   echo "Options:"
-  echo "  --ram N       RAM allowance in GB for inference (default: 35, min 18)"
-  echo "  --port N      Port for a fresh oMLX install (default: first free port in 8000-8999)"
-  echo "  --yes, -y     Skip the confirmation prompt"
   echo "  --check-only  Report system information and install configuration, then exit"
-  echo "  --json        Emit machine-readable events on stdout, human output on stderr (implies --yes)"
+  echo "  --json        Emit machine-readable events on stdout, human output on stderr"
   echo "  --help, -h    Show this help"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --json) MACHINE_OUTPUT=true; ASSUME_YES=true ;;
+    --json) MACHINE_OUTPUT=true ;;
     --check-only) CHECK_ONLY=true ;;
-    --yes|-y) ASSUME_YES=true ;;
-    --ram) shift; ARG_RAM="${1:-}" ;;
-    --ram=*) ARG_RAM="${1#--ram=}" ;;
-    --port) shift; ARG_PORT="${1:-}" ;;
-    --port=*) ARG_PORT="${1#--port=}" ;;
     --help|-h) usage; exit 0 ;;
-    -*) echo "ERROR: Unknown option: $1"; usage; exit 1 ;;
-    *) ARG_RAM="$1" ;;
+    *) echo "ERROR: Unknown option: $1"; usage; exit 1 ;;
   esac
   shift
 done
@@ -152,23 +140,6 @@ version_ge() {
   [ "$v1" = "$highest" ]
 }
 
-# RAM allowance must be a whole number of at least 18 GB
-# (17 GB is reserved for model weights, the rest goes to the hot cache)
-is_valid_ram() {
-  case "$1" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  [ "$1" -ge 18 ]
-}
-
-# Port must be a whole number in 1024-65535
-is_valid_port() {
-  case "$1" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
-}
-
 # oMLX constants (needed early for detection)
 OMLX_SETTINGS="$HOME/.omlx/settings.json"
 OMLX_MIN_VERSION="0.5.2"
@@ -231,20 +202,6 @@ else
   if [ "$PORT_CANDIDATE" -ge 9000 ]; then
     echo "ERROR: No free port found in range 8000-8999."
     emit_error "No free port found in range 8000-8999"
-    wait_and_exit 1
-  fi
-fi
-
-# Port override from --port (only meaningful for a fresh install)
-if [ -n "$ARG_PORT" ]; then
-  if [ "$OMLX_INSTALLED" = true ]; then
-    echo "WARNING: --port is ignored because oMLX is already installed on port ${OMLX_EXISTING_PORT}."
-    emit_warning "--port is ignored because oMLX is already installed on port ${OMLX_EXISTING_PORT}"
-  elif is_valid_port "$ARG_PORT"; then
-    PORT_CANDIDATE="$ARG_PORT"
-  else
-    echo "ERROR: Invalid port '$ARG_PORT' (must be 1024-65535)."
-    emit_error "Invalid port '$ARG_PORT' (must be 1024-65535)"
     wait_and_exit 1
   fi
 fi
@@ -336,12 +293,8 @@ emit_check "ram" "$(check_status "$RAM_OK" "$RAM_WARN")" "${MEM_GB} GB" "minimum
 echo ""
 
 # RAM allowance for inference (weights + KV cache)
-OMLX_MODEL_RAM_GB="${ARG_RAM:-35}"
-if ! is_valid_ram "$OMLX_MODEL_RAM_GB"; then
-  printf "  ${RED}ERROR:${NC} RAM allowance must be a whole number of at least 18 GB (got: %s)\n" "$OMLX_MODEL_RAM_GB"
-  emit_error "RAM allowance must be a whole number of at least 18 GB (got: $OMLX_MODEL_RAM_GB)"
-  wait_and_exit 1
-fi
+# 17 GB is reserved for model weights, the rest goes to the hot cache
+OMLX_MODEL_RAM_GB=35
 
 # oMLX status — in System Information if installed, in Install Configuration if not
 # An installed oMLX older than the minimum version is a hard failure:
@@ -383,63 +336,13 @@ if [ "$CHECK_ONLY" = true ]; then
 fi
 
 # ============================================================
-# Decision: proceed or exit
+# Abort unless all hard requirements are met
 # ============================================================
 if [ "$ALL_OK" = false ]; then
   echo "Some system requirements are not met. Installation cannot proceed."
   emit_error "Some system requirements are not met. Installation cannot proceed."
   wait_and_exit 1
 fi
-
-# All hard requirements met — ask user to confirm (skipped with --yes/--json)
-if [ "$ASSUME_YES" = true ]; then
-  CONTINUE_ANSWER="y"
-else
-  read -r -p "Do you want to continue with these settings? [Y/n] " CONTINUE_ANSWER
-fi
-case "$CONTINUE_ANSWER" in
-  [nN]|[nN][oO])
-    echo ""
-    echo "You can customize the configuration."
-    echo ""
-    if [ "$OMLX_INSTALLED" = false ]; then
-      read -r -p "Port [${PORT_CANDIDATE}]: " CUSTOM_PORT
-      CUSTOM_PORT="${CUSTOM_PORT:-$PORT_CANDIDATE}"
-      if is_valid_port "$CUSTOM_PORT"; then
-        PORT_CANDIDATE="$CUSTOM_PORT"
-      else
-        echo "  Invalid port '$CUSTOM_PORT' (must be 1024-65535) — keeping ${PORT_CANDIDATE}."
-      fi
-    fi
-    read -r -p "RAM allowance (GB) [${OMLX_MODEL_RAM_GB}]: " CUSTOM_RAM
-    CUSTOM_RAM="${CUSTOM_RAM:-$OMLX_MODEL_RAM_GB}"
-    if is_valid_ram "$CUSTOM_RAM"; then
-      OMLX_MODEL_RAM_GB="$CUSTOM_RAM"
-    else
-      echo "  Invalid RAM allowance '$CUSTOM_RAM' (whole number, min 18) — keeping ${OMLX_MODEL_RAM_GB} GB."
-    fi
-    echo ""
-    echo "Updated configuration:"
-    if [ "$OMLX_INSTALLED" = false ]; then
-      print_value "oMLX:" "not installed" true true "will install v${OMLX_TARGET_VERSION} on port ${PORT_CANDIDATE}"
-    fi
-    print_value "RAM allowance:" "${OMLX_MODEL_RAM_GB} GB" true false ""
-    echo ""
-    read -r -p "Proceed with these settings? [Y/n] " FINAL_ANSWER
-    case "$FINAL_ANSWER" in
-      [nN]|[nN][oO])
-        echo "Installation cancelled."
-        wait_and_exit 1
-        ;;
-      *)
-        echo ""
-        ;;
-    esac
-    ;;
-  *)
-    echo ""
-    ;;
-esac
 
 # Configuration
 BASE_URL="https://download.jetbrains.com/resources/junie-local"
