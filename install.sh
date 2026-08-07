@@ -218,12 +218,12 @@ print_value() {
 
 ALL_OK=true
 
-# OS check (hard requirement: macOS 15+)
+# OS check (hard requirement: macOS 26+)
 OS_OK=true
 if [ "$UNAME_OUT" != "Darwin" ]; then
   OS_OK=false
   ALL_OK=false
-elif [ "$OS_VERSION" -lt 15 ]; then
+elif [ "$OS_VERSION" -lt 26 ]; then
   OS_OK=false
   ALL_OK=false
 fi
@@ -232,8 +232,8 @@ if [ "$UNAME_OUT" = "Darwin" ]; then
 else
   OS_DISPLAY="$UNAME_OUT $OS_FULL_VERSION"
 fi
-print_value "OS:" "$OS_DISPLAY" "$OS_OK" false "macOS 15 or higher"
-emit_check "os" "$(check_status "$OS_OK" false)" "$OS_DISPLAY" "macOS 15 or higher"
+print_value "OS:" "$OS_DISPLAY" "$OS_OK" false "macOS 26 or higher"
+emit_check "os" "$(check_status "$OS_OK" false)" "$OS_DISPLAY" "macOS 26 or higher"
 echo ""
 
 # CPU check (hard: Apple Silicon, recommended: M4 or M5)

@@ -4,7 +4,7 @@ Local inference support for Junie on macOS. This repository provides an automate
 
 ## System Requirements
 
-- **macOS 15** or higher
+- **macOS 26** or higher
 - **Apple Silicon** processor (M4 or M5 recommended; older Apple Silicon works with a warning)
 - **40 GB RAM** minimum (60 GB recommended for optimal performance)
 - **~21 GB** free disk space (~15 GB models, ~0.5 GB engine)
