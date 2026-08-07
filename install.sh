@@ -96,7 +96,7 @@ JUNIE_MAX_CONTEXT_LENGTH=90000
 #   {"event":"step_done","id":"engine|models|configure|start"}
 #   {"event":"warning","message":"..."}
 #   {"event":"error","message":"..."}
-#   {"event":"done","model_id":"...","port":N}
+#   {"event":"done","model_id":"...","port":N,"model_path":"...","label":"..."}
 # Consumers must check the protocol version in "hello" and ignore
 # unknown event types and fields.
 # ============================================================
@@ -218,17 +218,22 @@ print_value() {
 
 ALL_OK=true
 
-# OS check (hard requirement: macOS 26+)
+# OS check (hard requirement: macOS 15+)
 OS_OK=true
 if [ "$UNAME_OUT" != "Darwin" ]; then
   OS_OK=false
   ALL_OK=false
-elif [ "$OS_VERSION" -lt 26 ]; then
+elif [ "$OS_VERSION" -lt 15 ]; then
   OS_OK=false
   ALL_OK=false
 fi
-print_value "OS:" "$UNAME_OUT $OS_FULL_VERSION" "$OS_OK" false "macOS 26 or higher"
-emit_check "os" "$(check_status "$OS_OK" false)" "$UNAME_OUT $OS_FULL_VERSION" "macOS 26 or higher"
+if [ "$UNAME_OUT" = "Darwin" ]; then
+  OS_DISPLAY="macOS $OS_FULL_VERSION"
+else
+  OS_DISPLAY="$UNAME_OUT $OS_FULL_VERSION"
+fi
+print_value "OS:" "$OS_DISPLAY" "$OS_OK" false "macOS 15 or higher"
+emit_check "os" "$(check_status "$OS_OK" false)" "$OS_DISPLAY" "macOS 15 or higher"
 echo ""
 
 # CPU check (hard: Apple Silicon, recommended: M4 or M5)
@@ -654,5 +659,5 @@ echo "  The engine serves http://localhost:$ENGINE_PORT — the first request ha
 echo "  to wait for the model to load."
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
-emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT"
+emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT,\"model_path\":\"$(json_escape "$MODELS_DIR/models--$MODEL_ID_1")\",\"label\":\"$(json_escape "$MODEL_LABEL_1")\""
 wait_and_exit 0

@@ -4,7 +4,7 @@ Local inference support for Junie on macOS. This repository provides an automate
 
 ## System Requirements
 
-- **macOS 26** or higher
+- **macOS 15** or higher
 - **Apple Silicon** processor (M4 or M5 recommended; older Apple Silicon works with a warning)
 - **40 GB RAM** minimum (60 GB recommended for optimal performance)
 - **~21 GB** free disk space (~15 GB models, ~0.5 GB engine)
@@ -58,7 +58,7 @@ Events:
 {"event":"step_done","id":"engine|models|configure|start"}
 {"event":"warning","message":"..."}
 {"event":"error","message":"..."}
-{"event":"done","model_id":"...","port":19239}
+{"event":"done","model_id":"...","port":19239,"model_path":"...","label":"..."}
 ```
 
 The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("Junie MLX VLM engine", "Local Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
