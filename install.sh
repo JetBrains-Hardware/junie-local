@@ -68,8 +68,8 @@ VERSIONS_DIR="$BASE_DIR/versions"
 ENGINE_DIR="$VERSIONS_DIR/$ENGINE_VERSION"
 CURRENT_LINK="$BASE_DIR/current"
 ENGINE_BIN="$CURRENT_LINK/junie-mlx-vlm"
-ENGINE_LOG="$BASE_DIR/junie-mlx-vlm.log"
-ENGINE_PID_FILE="$BASE_DIR/junie-mlx-vlm.pid"
+ENGINE_CTL="$CURRENT_LINK/serverctl.sh"
+ENGINE_DAEMON_LOG="$BASE_DIR/junie-mlx-vlm-daemon.log"
 
 # The port the engine serves on (the Junie model config below points at it) and
 # the RAM allowance it may spend on weights and KV cache. The engine reads the
@@ -397,7 +397,7 @@ engine_completion_marker() {
 }
 
 engine_installed() {
-  [ -x "$ENGINE_DIR/junie-mlx-vlm" ] && [ -f "$(engine_completion_marker)" ]
+  [ -x "$ENGINE_DIR/junie-mlx-vlm" ] && [ -f "$ENGINE_DIR/serverctl.sh" ] && [ -f "$(engine_completion_marker)" ]
 }
 
 # Function to download and unpack the inference engine, then point current at it
@@ -446,7 +446,7 @@ install_engine() {
   echo ""
 }
 
-# Function to start the engine daemon in the background. The daemon serves the
+# Function to start the engine daemon using serverctl.sh. The daemon serves the
 # public API and supervises the inference worker itself.
 start_engine() {
   if [ ! -x "$ENGINE_BIN" ]; then
@@ -456,10 +456,19 @@ start_engine() {
     return 1
   fi
 
+  if [ ! -f "$ENGINE_CTL" ]; then
+    echo "  WARNING: serverctl.sh not found at $ENGINE_CTL — falling back to direct start"
+    emit_warning "serverctl.sh missing — using direct binary start"
+  fi
+
   # Stop an engine from an earlier run so it releases the port
   if pgrep -f junie-mlx-vlm > /dev/null 2>&1; then
     echo "  Stopping the running engine..."
-    pkill -f junie-mlx-vlm || true
+    if [ -f "$ENGINE_CTL" ]; then
+      "$ENGINE_CTL" stop >/dev/null 2>&1 || true
+    else
+      pkill -f junie-mlx-vlm || true
+    fi
     waited=0
     while [ "$waited" -lt 10 ] && pgrep -f junie-mlx-vlm > /dev/null 2>&1; do
       sleep 1
@@ -467,30 +476,47 @@ start_engine() {
     done
   fi
 
-  echo "  Starting the engine (log: $ENGINE_LOG)..."
-  # The subshell keeps the daemon out of this script's job table, so the
-  # interrupt handler cannot take the engine down with the installer.
-  ( nohup "$ENGINE_BIN" daemon >> "$ENGINE_LOG" 2>&1 & echo $! > "$ENGINE_PID_FILE" )
-  engine_pid=$(cat "$ENGINE_PID_FILE" 2>/dev/null || echo "")
+  # Start via serverctl.sh (the subshell keeps the daemon out of this script's
+  # job table so the interrupt handler cannot take it down with the installer).
+  echo "  Starting the engine (log: $ENGINE_DAEMON_LOG)..."
+  if [ -f "$ENGINE_CTL" ]; then
+    ( "$ENGINE_CTL" start > /dev/null 2>&1 )
+  else
+    ( nohup "$ENGINE_BIN" daemon >> "$ENGINE_DAEMON_LOG" 2>&1 & )
+  fi
 
-  # The daemon binds the port before the worker finishes loading the model, so a
-  # short wait is enough to tell "started" from "died on startup".
-  waited=0
-  while [ "$waited" -lt 15 ]; do
-    if nc -z localhost "$ENGINE_PORT" 2>/dev/null; then
-      echo "  Engine is listening on port $ENGINE_PORT (pid ${engine_pid:-unknown})."
-      return 0
-    fi
-    if [ -n "$engine_pid" ] && ! kill -0 "$engine_pid" 2>/dev/null; then
-      break
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
+  # Wait for the engine to become ready. serverctl.sh wait polls /status until
+  # phase is "ready"; fall back to a simple port check if it is unavailable.
+  if [ -f "$ENGINE_CTL" ]; then
+    waited=0
+    while [ "$waited" -lt 30 ]; do
+      phase=$(curl -s -m 5 "http://localhost:$ENGINE_PORT/status" 2>/dev/null \
+        | plutil -extract phase raw -o - -- - 2>/dev/null || true)
+      if [ "$phase" = "ready" ]; then
+        echo "  Engine is ready on port $ENGINE_PORT."
+        return 0
+      fi
+      if [ "$phase" = "error" ]; then
+        break
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+  else
+    waited=0
+    while [ "$waited" -lt 15 ]; do
+      if nc -z localhost "$ENGINE_PORT" 2>/dev/null; then
+        echo "  Engine is listening on port $ENGINE_PORT."
+        return 0
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
 
   echo "  WARNING: the engine is not answering on port $ENGINE_PORT yet."
-  echo "  Check the log at $ENGINE_LOG"
-  emit_warning "engine did not start listening on port $ENGINE_PORT — see $ENGINE_LOG"
+  echo "  Check the log at $ENGINE_DAEMON_LOG"
+  emit_warning "engine did not start listening on port $ENGINE_PORT — see $ENGINE_DAEMON_LOG"
   return 1
 }
 
@@ -652,12 +678,13 @@ echo ""
 echo "  Engine installed to: $ENGINE_DIR"
 echo "  Current version:     $CURRENT_LINK -> $ENGINE_DIR"
 echo "  Models installed to: $MODELS_DIR"
-echo "  Engine log:          $ENGINE_LOG"
+echo "  Engine log:          $ENGINE_DAEMON_LOG"
 echo "  Junie model config:  $HOME/.junie/models/${JUNIE_MODEL_ID}.json"
 echo ""
 echo "  The engine serves http://localhost:$ENGINE_PORT — the first request has"
 echo "  to wait for the model to load."
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
+echo "  Control the engine with: $ENGINE_CTL {start|stop|status|wait}"
 emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT,\"model_path\":\"$(json_escape "$MODELS_DIR/models--$MODEL_ID_1")\",\"label\":\"$(json_escape "$MODEL_LABEL_1")\""
 wait_and_exit 0

@@ -86,31 +86,37 @@ Resulting layout:
 ├── current -> versions/0.1.1
 ├── versions/0.1.1/
 │   ├── junie-mlx-vlm          # the engine binary
+│   ├── serverctl.sh           # start/stop/status control script
 │   └── _internal/
 ├── models/
 ├── server-config.json         # written by the engine on first start
-├── junie-mlx-vlm.log
-└── junie-mlx-vlm.pid
+└── junie-mlx-vlm-daemon.log
 ```
 
 ## Inference Engine
 
 **junie-mlx-vlm** serves an OpenAI-compatible API on port `19239` and supervises the inference worker itself. Engine releases are unpacked side by side under `versions/`, and `current` symlinks the one to run — so an upgrade is a new directory plus a symlink swap.
 
-The installer starts it as the last step:
+Each release includes `serverctl.sh`, a curl-based control script. The installer uses it to start and stop the engine:
 
 ```bash
-nohup ~/.local/share/junie-local/current/junie-mlx-vlm daemon >> ~/.local/share/junie-local/junie-mlx-vlm.log 2>&1 &
+~/.local/share/junie-local/current/serverctl.sh start
 ```
 
-It is detached from the installer, so it keeps running after the script (and the terminal) exits; its pid is recorded in `junie-mlx-vlm.pid`. If an engine is already running, the installer stops it first so the new version takes the port. The installer waits up to 15 seconds for the port to open — the model itself keeps loading in the background after that, so the first request through Junie has to wait for it.
+It is detached from the installer, so it keeps running after the script (and the terminal) exits. If an engine is already running, the installer gracefully stops it first with `serverctl.sh stop` (POST /shutdown) so the new version takes the port. After starting, the installer polls `/status` until the phase is `ready` — the model itself keeps loading in the background, so the first request through Junie has to wait for it.
 
-The engine takes no command-line options: everything comes from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. It needs the models to be in place before it can serve, which is why the installer downloads them first.
+The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. It needs the models to be in place before it can serve, which is why the installer downloads them first.
 
-Stop it manually with:
+`serverctl.sh` supports these commands:
 
 ```bash
-kill "$(cat ~/.local/share/junie-local/junie-mlx-vlm.pid)"
+~/.local/share/junie-local/current/serverctl.sh start     # launch the server
+~/.local/share/junie-local/current/serverctl.sh stop      # graceful shutdown
+~/.local/share/junie-local/current/serverctl.sh status    # lifecycle phase + inference progress
+~/.local/share/junie-local/current/serverctl.sh wait      # poll until phase is "ready"
+~/.local/share/junie-local/current/serverctl.sh health    # health check
+~/.local/share/junie-local/current/serverctl.sh settings  # current serving settings
+~/.local/share/junie-local/current/serverctl.sh apply key=value   # apply settings at runtime
 ```
 
 ## Junie Model Configuration
