@@ -34,9 +34,10 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 
 ```
 sh install.sh [options]
-  --check-only  Report system information and install configuration, then exit (exit code 0 if all hard requirements are met, 1 otherwise)
-  --json        Emit machine-readable events on stdout, human output on stderr
-  --help, -h    Show this help
+  --check-only       Report system information and install configuration, then exit (exit code 0 if all hard requirements are met, 1 otherwise)
+  --json             Emit machine-readable events on stdout, human output on stderr
+  --keep-config      Preserve the existing server-config.json instead of removing it
+  --help, -h         Show this help
 ```
 
 ### Machine-Readable Mode (`--json`)
@@ -105,7 +106,7 @@ Each release includes `serverctl.sh`, a curl-based control script. The installer
 
 It is detached from the installer, so it keeps running after the script (and the terminal) exits. If an engine is already running, the installer gracefully stops it first with `serverctl.sh stop` (POST /shutdown) so the new version takes the port. After starting, the installer polls `/status` until the phase is `ready` — the model itself keeps loading in the background, so the first request through Junie has to wait for it.
 
-The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. It needs the models to be in place before it can serve, which is why the installer downloads them first.
+The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. The installer **removes** the existing config before starting the engine so a fresh version begins with a clean slate. Use `--keep-config` to preserve the previous config file. It needs the models to be in place before it can serve, which is why the installer downloads them first.
 
 `serverctl.sh` supports these commands:
 

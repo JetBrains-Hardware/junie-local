@@ -9,20 +9,23 @@ PROTOCOL_VERSION=1
 
 MACHINE_OUTPUT=false
 CHECK_ONLY=false
+KEEP_CONFIG=false
 
 usage() {
   echo "Usage: install.sh [options]"
   echo ""
   echo "Options:"
-  echo "  --check-only  Report system information and install configuration, then exit"
-  echo "  --json        Emit machine-readable events on stdout, human output on stderr"
-  echo "  --help, -h    Show this help"
+  echo "  --check-only       Report system information and install configuration, then exit"
+  echo "  --json             Emit machine-readable events on stdout, human output on stderr"
+  echo "  --keep-config      Preserve the existing server-config.json instead of removing it"
+  echo "  --help, -h         Show this help"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --json) MACHINE_OUTPUT=true ;;
     --check-only) CHECK_ONLY=true ;;
+    --keep-config) KEEP_CONFIG=true ;;
     --help|-h) usage; exit 0 ;;
     *) echo "ERROR: Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -466,9 +469,26 @@ install_engine() {
   echo ""
 }
 
+# Remove the server-config.json so the new engine version starts with a clean
+# configuration. With --keep-config the previous file is left in place.
+handle_server_config() {
+  SERVER_CONFIG="$BASE_DIR/server-config.json"
+  if [ -f "$SERVER_CONFIG" ]; then
+    if [ "$KEEP_CONFIG" = true ]; then
+      echo "  Keeping existing server-config.json (--keep-config)."
+    else
+      echo "  Removing existing server-config.json (use --keep-config to preserve)."
+      rm -f "$SERVER_CONFIG"
+    fi
+  fi
+}
+
 # Function to start the engine daemon using serverctl.sh. The daemon serves the
 # public API and supervises the inference worker itself.
 start_engine() {
+  # Remove the config file by default so the engine writes a fresh one on first start.
+  handle_server_config
+
   if [ ! -x "$ENGINE_BIN" ]; then
     echo "  WARNING: engine binary not found at $ENGINE_BIN"
     echo "  Skipping engine startup."
@@ -698,6 +718,11 @@ echo ""
 emit_step_start "start" "Starting the inference engine"
 start_engine || true
 emit_step_done "start"
+
+if [ "$KEEP_CONFIG" = true ]; then
+  echo ""
+  echo "  Note: --keep-config is set, the previous server-config.json was preserved."
+fi
 
 echo ""
 echo "=== Installation complete ==="
