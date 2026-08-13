@@ -43,6 +43,10 @@ fi
 
 BASE_URL="https://download.jetbrains.com/resources/junie-local"
 BASE_DIR="$HOME/.local/share/junie-local"
+# Junie configuration directory; the caller (Junie CLI) overrides it when it
+# runs with a non-default home so the model config lands where that instance
+# looks for it.
+JUNIE_HOME="${JUNIE_HOME:-$HOME/.junie}"
 MODELS_DIR="$BASE_DIR/models"
 DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 
@@ -279,6 +283,7 @@ echo ""
 
 print_value "Engine:" "junie-mlx-vlm v${ENGINE_VERSION}" true false ""
 print_value "Models directory:" "$MODELS_DIR" true false ""
+print_value "Junie home:" "$JUNIE_HOME" true false ""
 print_value "Inference port:" "$ENGINE_PORT" true false ""
 print_value "RAM allowance:" "${ENGINE_RAM_GB} GB" true false ""
 echo ""
@@ -565,10 +570,10 @@ start_engine() {
 
 # Function to create Junie model config file
 create_junie_model_config() {
-  JUNIE_MODELS_DIR="$HOME/.junie/models"
+  JUNIE_MODELS_DIR="$JUNIE_HOME/models"
   JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/${JUNIE_MODEL_ID}.json"
 
-  # Create ~/.junie/models directory if it doesn't exist
+  # Create the models directory if it doesn't exist
   if [ ! -d "$JUNIE_MODELS_DIR" ]; then
     mkdir -p "$JUNIE_MODELS_DIR"
   fi
@@ -593,7 +598,7 @@ EOF
 
 # Function to set the local model as the default in Junie settings
 set_default_junie_model() {
-  JUNIE_SETTINGS="$HOME/.junie/settings.json"
+  JUNIE_SETTINGS="$JUNIE_HOME/settings.json"
 
   if [ ! -f "$JUNIE_SETTINGS" ]; then
     echo "  WARNING: Junie settings not found at $JUNIE_SETTINGS"
@@ -731,7 +736,7 @@ echo "  Engine installed to: $ENGINE_DIR"
 echo "  Current version:     $CURRENT_LINK -> $ENGINE_DIR"
 echo "  Models installed to: $MODELS_DIR"
 echo "  Engine log:          $ENGINE_DAEMON_LOG"
-echo "  Junie model config:  $HOME/.junie/models/${JUNIE_MODEL_ID}.json"
+echo "  Junie model config:  $JUNIE_HOME/models/${JUNIE_MODEL_ID}.json"
 echo ""
 echo "  The engine serves http://localhost:$ENGINE_PORT — the first request has"
 echo "  to wait for the model to load."
