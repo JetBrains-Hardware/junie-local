@@ -89,6 +89,8 @@ ENGINE_RAM_GB=35
 # Junie model configuration
 JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
 JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
+JUNIE_MODEL_DISPLAY_NAME="Qwen 3.6"
+JUNIE_MODEL_PROVIDER_NAME="Local"
 # seems to be optimal context length
 JUNIE_MAX_CONTEXT_LENGTH=150000
 
@@ -582,6 +584,8 @@ create_junie_model_config() {
   echo "  Creating Junie model config at $JUNIE_CONFIG_FILE..."
   cat > "$JUNIE_CONFIG_FILE" <<EOF
 {
+  "displayName": "$JUNIE_MODEL_DISPLAY_NAME",
+  "providerName": "$JUNIE_MODEL_PROVIDER_NAME",
   "id": "$ENGINE_MODEL_NAME",
   "baseUrl": "http://localhost:$ENGINE_PORT/v1/chat/completions",
   "apiType": "OpenAICompletion",
