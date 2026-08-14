@@ -51,18 +51,18 @@ MODELS_DIR="$BASE_DIR/models"
 DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 
 # Model archives, their SHA256 checksums, model IDs, and display labels
-MODEL_ZIP_1="models--mlx-community--Qwen3.6-27B-4bit.zip"
-MODEL_SHA256_1="adf7f8d832ed994dcc6d09372036b4d12f49a4ccda066179cc64dc2dd113f91d"
-MODEL_ID_1="mlx-community--Qwen3.6-27B-4bit"
-MODEL_LABEL_1="Qwen 3.6 27B 4bit"
-MODEL_ZIP_2="models--mlx-community--Qwen3.6-27B-MTP-4bit.zip"
-MODEL_SHA256_2="9266c1ba244ec6176fc82474bbfd20614969eb28c4cfa24301e515fbd1f5a525"
-MODEL_ID_2="mlx-community--Qwen3.6-27B-MTP-4bit"
+MODEL_ZIP_1="Qwen3.8-27B-MLX-4bit.zip"
+MODEL_SHA256_1="50e659f4d286e281502aeaa0fbea43710fd318a976c8cd331c1f8519b303ba39"
+MODEL_ID_1="Qwen3.8-27B-MLX-4bit"
+MODEL_LABEL_1="Qwen 3.8 27B 4bit"
+MODEL_ZIP_2="Qwen3.8-27B-MTP-MLX-4bit.zip"
+MODEL_SHA256_2="3131d15127297d26c5e97ab63e242be5d1a81b3c8a390fa6e5b6e5a08d7f4f90"
+MODEL_ID_2="Qwen3.8-27B-MTP-MLX-4bit"
 MODEL_LABEL_2="MTP draft model"
 
 # Name the engine serves the main model under. The models-- directories above
 # are the Hugging Face cache spelling of the same id.
-ENGINE_MODEL_NAME="mlx-community/Qwen3.6-27B-4bit"
+ENGINE_MODEL_NAME="Qwen3.8-27B-MLX-4bit"
 
 # Inference engine release. Versions are unpacked side by side under versions/
 # and the current symlink points at the one to run.
@@ -87,9 +87,9 @@ ENGINE_PORT=19239
 ENGINE_RAM_GB=35
 
 # Junie model configuration
-JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
-JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.6-27b-4bit"
-JUNIE_MODEL_DISPLAY_NAME="Qwen 3.6"
+JUNIE_MODEL_ID="local-qwen3.8-27b-4bit"
+JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.8-27b-4bit"
+JUNIE_MODEL_DISPLAY_NAME="Qwen 3.8"
 JUNIE_MODEL_PROVIDER_NAME="Local"
 # seems to be optimal context length
 JUNIE_MAX_CONTEXT_LENGTH=150000
