@@ -379,7 +379,10 @@ extract_with_progress_events() {
   unzip -q "$archive" -d "$MODELS_DIR" &
   unzip_pid=$!
   while kill -0 "$unzip_pid" 2>/dev/null; do
-    bytes=$(( $(du -sk "$dest_dir" 2>/dev/null | awk '{print $1 + 0}') * 1024 ))
+    # The destination directory does not exist until unzip creates it, so `du`
+    # can fail — `awk END` still prints a number, keeping the arithmetic valid.
+    extracted_kb=$(du -sk "$dest_dir" 2>/dev/null | awk 'END { print $1 + 0 }')
+    bytes=$(( ${extracted_kb:-0} * 1024 ))
     emit_progress "$file_name" "$bytes" "$total" "$label" "extracting"
     sleep 1
   done
@@ -686,10 +689,11 @@ install_model_if_needed() {
   download_and_verify "$zip_file" "$sha256_sum" "$model_label"
   echo "Extracting $zip_file to $MODELS_DIR..."
   emit_activity "extracting" "$zip_file" "$model_label"
-  # Remove leftovers from a previously interrupted extraction
-  rm -rf "$MODELS_DIR/models--$model_id"
+  # Remove leftovers from a previously interrupted extraction — the path is
+  # spelled out instead of using $MODELS_DIR so the rm -rf target is explicit
+  rm -rf "$BASE_DIR/models/$model_id"
   if [ "$MACHINE_OUTPUT" = true ]; then
-    extract_with_progress_events "$DOWNLOAD_DIR/$zip_file" "$MODELS_DIR/models--$model_id" "$model_label"
+    extract_with_progress_events "$DOWNLOAD_DIR/$zip_file" "$MODELS_DIR/$model_id" "$model_label"
   else
     unzip -q "$DOWNLOAD_DIR/$zip_file" -d "$MODELS_DIR"
   fi
