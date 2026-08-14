@@ -66,10 +66,10 @@ ENGINE_MODEL_NAME="Qwen3.8-27B-MLX-4bit"
 
 # Inference engine release. Versions are unpacked side by side under versions/
 # and the current symlink points at the one to run.
-ENGINE_VERSION="0.1.6"
-ENGINE_ARCHIVE="junie-mlx-vlm-0.1.6-macos-arm64.tar.gz"
-ENGINE_URL="https://cache-redirector.jetbrains.com/github.com/JetBrains-Hardware/junie-local/releases/download/v0.1.6/$ENGINE_ARCHIVE"
-ENGINE_SHA256="76a18cd7a726639f7c3c1d0e6c6dcec49fc9c5d5917b1430e98e0ec9dfe87aa8"
+ENGINE_VERSION="0.2.0"
+ENGINE_ARCHIVE="junie-mlx-vlm-0.2.0-macos-arm64.tar.gz"
+ENGINE_URL="https://cache-redirector.jetbrains.com/github.com/JetBrains-Hardware/junie-local/releases/download/v0.2.0/$ENGINE_ARCHIVE"
+ENGINE_SHA256="b6b3ad0df221679e5681f0cca4e8fd7c6c351ec3b025540af8b1d893e923bb92"
 ENGINE_LABEL="inference engine"
 VERSIONS_DIR="$BASE_DIR/versions"
 ENGINE_DIR="$VERSIONS_DIR/$ENGINE_VERSION"
