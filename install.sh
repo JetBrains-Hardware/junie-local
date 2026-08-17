@@ -120,6 +120,11 @@ ENGINE_DAEMON_LOG="$BASE_DIR/junie-mlx-vlm-daemon.log"
 ENGINE_PORT=19239
 ENGINE_RAM_GB=35
 
+# Bearer auth token for local engine-to-Junie communication. Generated on first
+# install and stored in server-config.json (api_key field). On re-runs the
+# installer reads the existing token from server-config.json to keep it stable.
+AUTH_TOKEN=""
+
 # Junie model configuration. The id and display name come from the selected
 # model above, so each variant gets its own config file in $JUNIE_HOME/models.
 JUNIE_CUSTOM_MODEL_ID="custom:$JUNIE_MODEL_ID"
@@ -513,10 +518,32 @@ install_engine() {
   echo ""
 }
 
-# Remove the server-config.json so the new engine version starts with a clean
-# configuration. With --keep-config the previous file is left in place.
+# Generate a random bearer token: "sk-" plus 12 random bytes in hex.
+generate_auth_token() {
+  AUTH_TOKEN=$(printf 'sk-%s' "$(head -c 12 /dev/urandom | xxd -p)")
+  echo "  Auth token generated."
+}
+
+# Read the bearer token from an existing server-config.json using plutil.
+read_auth_token_from_server_config() {
+  SERVER_CONFIG="$BASE_DIR/server-config.json"
+  if [ -f "$SERVER_CONFIG" ]; then
+    AUTH_TOKEN=$(plutil -extract api_key raw "$SERVER_CONFIG" 2>/dev/null || true)
+  fi
+}
+
+# Write server-config.json with the api_key field set to the generated bearer
+# token. The engine will read this on startup and enforce auth on all endpoints.
+# With --keep-config the previous file is left in place.
 handle_server_config() {
   SERVER_CONFIG="$BASE_DIR/server-config.json"
+
+  # On re-run, try to read the existing token from server-config.json before
+  # removing it, so we can reuse it in the fresh config.
+  if [ -z "$AUTH_TOKEN" ] && [ -f "$SERVER_CONFIG" ]; then
+    read_auth_token_from_server_config
+  fi
+
   if [ -f "$SERVER_CONFIG" ]; then
     if [ "$KEEP_CONFIG" = true ]; then
       echo "  Keeping existing server-config.json (--keep-config)."
@@ -524,6 +551,20 @@ handle_server_config() {
       echo "  Removing existing server-config.json (use --keep-config to preserve)."
       rm -f "$SERVER_CONFIG"
     fi
+  fi
+
+  if [ -z "$AUTH_TOKEN" ]; then
+    generate_auth_token
+  fi
+
+  if [ "$KEEP_CONFIG" != true ]; then
+    echo "  Writing server-config.json with api_key..."
+    cat > "$SERVER_CONFIG" <<EOF
+{
+  "api_key": "$AUTH_TOKEN"
+}
+EOF
+    echo "  server-config.json created with bearer auth."
   fi
 }
 
@@ -607,7 +648,7 @@ start_engine() {
   return 1
 }
 
-# Function to create Junie model config file
+# Function to create Junie model config file with bearer auth
 create_junie_model_config() {
   JUNIE_MODELS_DIR="$JUNIE_HOME/models"
   JUNIE_CONFIG_FILE="$JUNIE_MODELS_DIR/${JUNIE_MODEL_ID}.json"
@@ -617,7 +658,16 @@ create_junie_model_config() {
     mkdir -p "$JUNIE_MODELS_DIR"
   fi
 
-  # Write the Junie model config
+  # Ensure the auth token is available; if handle_server_config already ran,
+  # AUTH_TOKEN is already set. Otherwise read from server-config.json or generate.
+  if [ -z "$AUTH_TOKEN" ]; then
+    read_auth_token_from_server_config
+  fi
+  if [ -z "$AUTH_TOKEN" ]; then
+    generate_auth_token
+  fi
+
+  # Write the Junie model config with the bearer token as apiKey.
   echo "  Creating Junie model config at $JUNIE_CONFIG_FILE..."
   cat > "$JUNIE_CONFIG_FILE" <<EOF
 {
@@ -626,6 +676,7 @@ create_junie_model_config() {
   "id": "$ENGINE_MODEL_NAME",
   "baseUrl": "http://localhost:$ENGINE_PORT/v1/chat/completions",
   "apiType": "OpenAICompletion",
+  "apiKey": "$AUTH_TOKEN",
   "temperature": 0.6,
   "maxContextLength": $JUNIE_MAX_CONTEXT_LENGTH,
   "extraBody": {
@@ -633,7 +684,7 @@ create_junie_model_config() {
   }
 }
 EOF
-  echo "  Junie model config created."
+  echo "  Junie model config created with bearer auth."
   return 0
 }
 

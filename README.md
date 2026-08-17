@@ -96,7 +96,7 @@ Resulting layout:
 │   ├── serverctl.sh           # start/stop/status control script
 │   └── _internal/
 ├── models/
-├── server-config.json         # written by the engine on first start
+├── server-config.json         # written by the installer with bearer auth token
 └── junie-mlx-vlm-daemon.log
 ```
 
@@ -112,7 +112,7 @@ Each release includes `serverctl.sh`, a curl-based control script. The installer
 
 It is detached from the installer, so it keeps running after the script (and the terminal) exits. If an engine is already running, the installer gracefully stops it first with `serverctl.sh stop` (POST /shutdown) so the new version takes the port. After starting, the installer polls `/status` until the phase is `ready` — the model itself keeps loading in the background, so the first request through Junie has to wait for it.
 
-The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFIG`), which it creates itself on first start. The installer **removes** the existing config before starting the engine so a fresh version begins with a clean slate. Use `--keep-config` to preserve the previous config file. It needs the models to be in place before it can serve, which is why the installer downloads them first.
+The installer writes `server-config.json` with an `api_key` field — a randomly generated bearer token that the engine reads on startup. On re-run, the installer reads the existing token from the config file before replacing it, so the token stays stable across installs. Use `--keep-config` to preserve the previous config file.
 
 `serverctl.sh` supports these commands:
 
@@ -128,7 +128,11 @@ The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFI
 
 ## Junie Model Configuration
 
-The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` (`local-qwen3.8-27b-4bit.json` with `--model qwen3.8`) pointing at `http://localhost:19239/v1/chat/completions` (no API key), with the model id the engine serves (`Qwen3.6-27B-MLX-4bit`), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
+The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` (`local-qwen3.8-27b-4bit.json` with `--model qwen3.8`) pointing at `http://localhost:19239/v1/chat/completions`, with the model id the engine serves (`Qwen3.6-27B-MLX-4bit`), and sets it as the default Junie model.
+
+The model config includes an `apiKey` field set to the same bearer token stored in `server-config.json`. On re-run, the installer reads the existing token from `server-config.json` so both configs always use the same value.
+
+Restart Junie to apply the change; you can switch models later with the `/models` command.
 
 ## Resumable Downloads with Automatic Retries
 
