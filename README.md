@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 
 - **Model:** `qwen3.6` — pass `--model qwen3.8` to install Qwen 3.8 instead.
 - **Models directory:** `~/.local/share/junie-local/models`
-- **Engine:** `junie-mlx-vlm` v0.2.0, unpacked under `~/.local/share/junie-local/versions/`.
+- **Engine:** `junie-mlx-vlm` v0.2.1, unpacked under `~/.local/share/junie-local/versions/`.
 - **Inference port:** `19239` — the port the engine serves on and the Junie model config points at.
 - **RAM allowance:** 35 GB the inference engine may spend on weights and KV cache. Reported in the `config` event; not consumed by the installer itself.
 
@@ -58,7 +58,7 @@ Events:
 ```
 {"event":"hello","protocol":1}
 {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
-{"event":"config","port":19239,"ram_gb":35,"engine_version":"0.2.0","model":"qwen3.6","checks_passed":true}
+{"event":"config","port":19239,"ram_gb":35,"engine_version":"0.2.1","model":"qwen3.6","checks_passed":true}
 {"event":"step_start","id":"engine|models|configure|start","title":"..."}
 {"event":"progress","action":"downloading|extracting","file":"...","bytes":123,"total":456,"label":"..."}
 {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
@@ -80,7 +80,7 @@ When the script is run from Junie, the terminal window will close automatically 
 
 | Component | Size | Destination |
 |---|---|---|
-| **junie-mlx-vlm 0.2.0** | ~178 MB (~470 MB unpacked) | `~/.local/share/junie-local/versions/0.2.0/` |
+| **junie-mlx-vlm 0.2.1** | ~178 MB (~470 MB unpacked) | `~/.local/share/junie-local/versions/0.2.1/` |
 | **Qwen3.6-27B-4bit** or **Qwen3.8-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
 | the matching **MTP draft model** | ~250 MB | `~/.local/share/junie-local/models/` |
 
@@ -90,8 +90,8 @@ Resulting layout:
 
 ```
 ~/.local/share/junie-local/
-├── current -> versions/0.2.0
-├── versions/0.2.0/
+├── current -> versions/0.2.1
+├── versions/0.2.1/
 │   ├── junie-mlx-vlm          # the engine binary
 │   ├── serverctl.sh           # start/stop/status control script
 │   └── _internal/

@@ -100,10 +100,10 @@ ENGINE_MODEL_NAME="$MODEL_ID_1"
 
 # Inference engine release. Versions are unpacked side by side under versions/
 # and the current symlink points at the one to run.
-ENGINE_VERSION="0.2.0"
-ENGINE_ARCHIVE="junie-mlx-vlm-0.2.0-macos-arm64.tar.gz"
-ENGINE_URL="https://cache-redirector.jetbrains.com/github.com/JetBrains-Hardware/junie-local/releases/download/v0.2.0/$ENGINE_ARCHIVE"
-ENGINE_SHA256="b6b3ad0df221679e5681f0cca4e8fd7c6c351ec3b025540af8b1d893e923bb92"
+ENGINE_VERSION="0.2.1"
+ENGINE_ARCHIVE="junie-mlx-vlm-0.2.1-macos-arm64.tar.gz"
+ENGINE_URL="https://cache-redirector.jetbrains.com/github.com/JetBrains-Hardware/junie-local/releases/download/v0.2.1/$ENGINE_ARCHIVE"
+ENGINE_SHA256="6cf70ca322e01a7dd9a3ccaa5490aba64b2927008661f0eb67af7e50ded7c25f"
 ENGINE_LABEL="inference engine"
 VERSIONS_DIR="$BASE_DIR/versions"
 ENGINE_DIR="$VERSIONS_DIR/$ENGINE_VERSION"
