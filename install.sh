@@ -10,11 +10,13 @@ PROTOCOL_VERSION=1
 MACHINE_OUTPUT=false
 CHECK_ONLY=false
 KEEP_CONFIG=false
+MODEL="qwen3.6"
 
 usage() {
   echo "Usage: install.sh [options]"
   echo ""
   echo "Options:"
+  echo "  --model <name>     Model to install: qwen3.6 (default) or qwen3.8"
   echo "  --check-only       Report system information and install configuration, then exit"
   echo "  --json             Emit machine-readable events on stdout, human output on stderr"
   echo "  --keep-config      Preserve the existing server-config.json instead of removing it"
@@ -26,6 +28,14 @@ while [ $# -gt 0 ]; do
     --json) MACHINE_OUTPUT=true ;;
     --check-only) CHECK_ONLY=true ;;
     --keep-config) KEEP_CONFIG=true ;;
+    --model)
+      shift
+      if [ $# -eq 0 ]; then
+        echo "ERROR: --model requires a value"; usage; exit 1
+      fi
+      MODEL="$1"
+      ;;
+    --model=*) MODEL="${1#--model=}" ;;
     --help|-h) usage; exit 0 ;;
     *) echo "ERROR: Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -50,19 +60,43 @@ JUNIE_HOME="${JUNIE_HOME:-$HOME/.junie}"
 MODELS_DIR="$BASE_DIR/models"
 DOWNLOAD_DIR="$BASE_DIR/incomplete_downloads"
 
-# Model archives, their SHA256 checksums, model IDs, and display labels
-MODEL_ZIP_1="Qwen3.8-27B-MLX-4bit.zip"
-MODEL_SHA256_1="50e659f4d286e281502aeaa0fbea43710fd318a976c8cd331c1f8519b303ba39"
-MODEL_ID_1="Qwen3.8-27B-MLX-4bit"
-MODEL_LABEL_1="Qwen 3.8 27B 4bit"
-MODEL_ZIP_2="Qwen3.8-27B-MTP-MLX-4bit.zip"
-MODEL_SHA256_2="3131d15127297d26c5e97ab63e242be5d1a81b3c8a390fa6e5b6e5a08d7f4f90"
-MODEL_ID_2="Qwen3.8-27B-MTP-MLX-4bit"
-MODEL_LABEL_2="MTP draft model"
+# Model archives, their SHA256 checksums, model IDs, and display labels.
+# Both variants are published side by side; --model picks the one to install,
+# and installing one leaves an already installed other one untouched.
+case "$MODEL" in
+  qwen3.6)
+    MODEL_ZIP_1="Qwen3.6-27B-MLX-4bit.zip"
+    MODEL_SHA256_1="d8abf8f9260247fe2d571b5b65a5d6b80da6635f74f5e2ca195da1941ca7d48d"
+    MODEL_ID_1="Qwen3.6-27B-MLX-4bit"
+    MODEL_LABEL_1="Qwen 3.6 27B 4bit"
+    MODEL_ZIP_2="Qwen3.6-27B-MTP-MLX-4bit.zip"
+    MODEL_SHA256_2="ebbef3755e836082837f902036bfedb8201ab353310f3cbaefdb6d7b652b980f"
+    MODEL_ID_2="Qwen3.6-27B-MTP-MLX-4bit"
+    MODEL_LABEL_2="MTP draft model"
+    JUNIE_MODEL_ID="local-qwen3.6-27b-4bit"
+    JUNIE_MODEL_DISPLAY_NAME="Qwen 3.6"
+    ;;
+  qwen3.8)
+    MODEL_ZIP_1="Qwen3.8-27B-MLX-4bit.zip"
+    MODEL_SHA256_1="50e659f4d286e281502aeaa0fbea43710fd318a976c8cd331c1f8519b303ba39"
+    MODEL_ID_1="Qwen3.8-27B-MLX-4bit"
+    MODEL_LABEL_1="Qwen 3.8 27B 4bit"
+    MODEL_ZIP_2="Qwen3.8-27B-MTP-MLX-4bit.zip"
+    MODEL_SHA256_2="3131d15127297d26c5e97ab63e242be5d1a81b3c8a390fa6e5b6e5a08d7f4f90"
+    MODEL_ID_2="Qwen3.8-27B-MTP-MLX-4bit"
+    MODEL_LABEL_2="MTP draft model"
+    JUNIE_MODEL_ID="local-qwen3.8-27b-4bit"
+    JUNIE_MODEL_DISPLAY_NAME="Qwen 3.8"
+    ;;
+  *)
+    echo "ERROR: Unknown model: $MODEL (supported: qwen3.6, qwen3.8)"
+    exit 1
+    ;;
+esac
 
 # Name the engine serves the main model under. It matches the directory the
 # archive unpacks into under $MODELS_DIR.
-ENGINE_MODEL_NAME="Qwen3.8-27B-MLX-4bit"
+ENGINE_MODEL_NAME="$MODEL_ID_1"
 
 # Inference engine release. Versions are unpacked side by side under versions/
 # and the current symlink points at the one to run.
@@ -86,10 +120,9 @@ ENGINE_DAEMON_LOG="$BASE_DIR/junie-mlx-vlm-daemon.log"
 ENGINE_PORT=19239
 ENGINE_RAM_GB=35
 
-# Junie model configuration
-JUNIE_MODEL_ID="local-qwen3.8-27b-4bit"
-JUNIE_CUSTOM_MODEL_ID="custom:local-qwen3.8-27b-4bit"
-JUNIE_MODEL_DISPLAY_NAME="Qwen 3.8"
+# Junie model configuration. The id and display name come from the selected
+# model above, so each variant gets its own config file in $JUNIE_HOME/models.
+JUNIE_CUSTOM_MODEL_ID="custom:$JUNIE_MODEL_ID"
 JUNIE_MODEL_PROVIDER_NAME="Local"
 # seems to be optimal context length
 JUNIE_MAX_CONTEXT_LENGTH=150000
@@ -98,7 +131,7 @@ JUNIE_MAX_CONTEXT_LENGTH=150000
 # Machine-readable events (--json): one JSON object per line on stdout
 #   {"event":"hello","protocol":1}
 #   {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
-#   {"event":"config","port":N,"ram_gb":N,"engine_version":"...","checks_passed":true|false}
+#   {"event":"config","port":N,"ram_gb":N,"engine_version":"...","model":"...","checks_passed":true|false}
 #   {"event":"step_start","id":"engine|models|configure|start","title":"..."}
 #   {"event":"progress","action":"downloading|extracting","file":"...","bytes":N,"total":N,"label":"..."}
 #   {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
@@ -284,13 +317,14 @@ echo "=== Install Configuration ==="
 echo ""
 
 print_value "Engine:" "junie-mlx-vlm v${ENGINE_VERSION}" true false ""
+print_value "Model:" "$MODEL" true false ""
 print_value "Models directory:" "$MODELS_DIR" true false ""
 print_value "Junie home:" "$JUNIE_HOME" true false ""
 print_value "Inference port:" "$ENGINE_PORT" true false ""
 print_value "RAM allowance:" "${ENGINE_RAM_GB} GB" true false ""
 echo ""
 
-emit_event "\"event\":\"config\",\"port\":$ENGINE_PORT,\"ram_gb\":$ENGINE_RAM_GB,\"engine_version\":\"$(json_escape "$ENGINE_VERSION")\",\"checks_passed\":$ALL_OK"
+emit_event "\"event\":\"config\",\"port\":$ENGINE_PORT,\"ram_gb\":$ENGINE_RAM_GB,\"engine_version\":\"$(json_escape "$ENGINE_VERSION")\",\"model\":\"$(json_escape "$MODEL")\",\"checks_passed\":$ALL_OK"
 
 if [ "$CHECK_ONLY" = true ]; then
   if [ "$ALL_OK" = true ]; then

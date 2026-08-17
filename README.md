@@ -1,6 +1,8 @@
 # Junie Local
 
-Local inference support for Junie on macOS. This repository provides an automated installer that sets up the **junie-mlx-vlm** inference engine, downloads the **Qwen3.6-27B-4bit** model, registers it with Junie, and starts the engine in the background.
+Local inference support for Junie on macOS. This repository provides an automated installer that sets up the **junie-mlx-vlm** inference engine, downloads a **Qwen 27B 4bit** model, registers it with Junie, and starts the engine in the background.
+
+Two model versions are supported: **Qwen3.6-27B-4bit** (default) and **Qwen3.8-27B-4bit**. Pick one with `--model`.
 
 ## System Requirements
 
@@ -17,7 +19,7 @@ The installer is designed to be run with `sh` from within Junie. No parameters a
 
 ### Running Manually
 
-The installer is non-interactive and takes no configuration: it always uses its built-in defaults. Download it first, then run it:
+The installer is non-interactive: apart from the model version it always uses its built-in defaults. Download it first, then run it:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/main/install.sh -o /tmp/junie-local-install.sh && sh /tmp/junie-local-install.sh
@@ -25,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 
 #### Defaults
 
+- **Model:** `qwen3.6` — pass `--model qwen3.8` to install Qwen 3.8 instead.
 - **Models directory:** `~/.local/share/junie-local/models`
 - **Engine:** `junie-mlx-vlm` v0.2.0, unpacked under `~/.local/share/junie-local/versions/`.
 - **Inference port:** `19239` — the port the engine serves on and the Junie model config points at.
@@ -34,11 +37,14 @@ curl -fsSL https://raw.githubusercontent.com/erokhins/junie-local/refs/heads/mai
 
 ```
 sh install.sh [options]
+  --model <name>     Model to install: qwen3.6 (default) or qwen3.8
   --check-only       Report system information and install configuration, then exit (exit code 0 if all hard requirements are met, 1 otherwise)
   --json             Emit machine-readable events on stdout, human output on stderr
   --keep-config      Preserve the existing server-config.json instead of removing it
   --help, -h         Show this help
 ```
+
+Each model version installs into its own directory under `models/` and gets its own Junie model config, so the versions live side by side: re-running with a different `--model` downloads only what is missing and makes that version the default in Junie.
 
 ### Machine-Readable Mode (`--json`)
 
@@ -52,7 +58,7 @@ Events:
 ```
 {"event":"hello","protocol":1}
 {"event":"check","name":"os|cpu|ram","status":"ok|warn|fail","value":"...","requirement":"..."}
-{"event":"config","port":19239,"ram_gb":35,"engine_version":"0.2.0","checks_passed":true}
+{"event":"config","port":19239,"ram_gb":35,"engine_version":"0.2.0","model":"qwen3.6","checks_passed":true}
 {"event":"step_start","id":"engine|models|configure|start","title":"..."}
 {"event":"progress","action":"downloading|extracting","file":"...","bytes":123,"total":456,"label":"..."}
 {"event":"activity","action":"verifying|extracting","file":"...","label":"..."}
@@ -62,7 +68,7 @@ Events:
 {"event":"done","model_id":"...","port":19239,"model_path":"...","label":"..."}
 ```
 
-The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("inference engine", "Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
+The `hello` event is always first. `check` events describe the hard/soft requirement checks; `config` reports the settings the script will use — including the selected `model` — and whether all hard requirements passed. Download `progress` is emitted roughly once per second with absolute byte counts (correct across resumed downloads). The `label` field on `progress` and `activity` names the artifact being processed ("inference engine", "Qwen 3.6 27B 4bit", "MTP draft model") for display. A successful install ends with `done`; a failed one ends with `error`.
 
 Consumers must check the `protocol` version in `hello` and ignore unknown event types and fields — new event types and fields may be added without a protocol bump; the version only changes on incompatible changes to existing events. A typical embedding flow is: run `install.sh --check-only --json` to show requirements and the configuration that will be used, then run `install.sh --json` to install.
 
@@ -75,8 +81,8 @@ When the script is run from Junie, the terminal window will close automatically 
 | Component | Size | Destination |
 |---|---|---|
 | **junie-mlx-vlm 0.2.0** | ~178 MB (~470 MB unpacked) | `~/.local/share/junie-local/versions/0.2.0/` |
-| **Qwen3.6-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
-| **Qwen3.6-27B-MTP-4bit** | ~247 MB | `~/.local/share/junie-local/models/` |
+| **Qwen3.6-27B-4bit** or **Qwen3.8-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
+| the matching **MTP draft model** | ~250 MB | `~/.local/share/junie-local/models/` |
 
 Every archive is downloaded, verified against its SHA256 checksum, and unpacked. A marker file records each completed unpack (`.<id>.installed` for models, `.<version>.installed` for the engine), so re-running the installer skips what is already in place.
 
@@ -122,7 +128,7 @@ The engine reads its settings from `server-config.json` (or `$JUNIE_SERVER_CONFI
 
 ## Junie Model Configuration
 
-The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` pointing at `http://localhost:19239/v1/chat/completions` (no API key), with the model id the engine serves (`mlx-community/Qwen3.6-27B-4bit`), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
+The installer creates a Junie model config at `~/.junie/models/local-qwen3.6-27b-4bit.json` (`local-qwen3.8-27b-4bit.json` with `--model qwen3.8`) pointing at `http://localhost:19239/v1/chat/completions` (no API key), with the model id the engine serves (`Qwen3.6-27B-MLX-4bit`), and sets it as the default Junie model. Restart Junie to apply the change; you can switch models later with the `/models` command.
 
 ## Resumable Downloads with Automatic Retries
 
