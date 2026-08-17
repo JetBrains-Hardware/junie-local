@@ -25,10 +25,10 @@ jobs:
       - name: Download and upload model archive
         run: |
           curl --fail --location --progress-bar \
-            "https://junie-local.erokhins.com/Qwen3.8-27B-MLX-4bit.zip" \
+            "https://junie-local.erokhins.com/Qwen3.6-27B-MLX-4bit.zip" \
             | aws s3 cp \
               - \
-              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.8-27B-MLX-4bit.zip" \
+              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MLX-4bit.zip" \
               --acl private \
               --region eu-west-1 \
               --no-guess-mime-type
@@ -36,8 +36,28 @@ jobs:
       - name: Upload SHA256 checksum
         run: |
           aws s3 cp \
-            deploy/Qwen3.8-27B-MLX-4bit.zip.sha256 \
-            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.8-27B-MLX-4bit.zip.sha256" \
+            deploy/Qwen3.6-27B-MLX-4bit.zip.sha256 \
+            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MLX-4bit.zip.sha256" \
+            --acl private \
+            --region eu-west-1 \
+            --no-guess-mime-type
+
+      - name: Download and upload MTP model archive
+        run: |
+          curl --fail --location --progress-bar \
+            "https://junie-local.erokhins.com/Qwen3.6-27B-MTP-MLX-4bit.zip" \
+            | aws s3 cp \
+              - \
+              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MTP-MLX-4bit.zip" \
+              --acl private \
+              --region eu-west-1 \
+              --no-guess-mime-type
+
+      - name: Upload MTP SHA256 checksum
+        run: |
+          aws s3 cp \
+            deploy/Qwen3.6-27B-MTP-MLX-4bit.zip.sha256 \
+            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MTP-MLX-4bit.zip.sha256" \
             --acl private \
             --region eu-west-1 \
             --no-guess-mime-type
