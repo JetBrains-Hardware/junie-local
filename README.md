@@ -78,7 +78,7 @@ When the script is run from Junie, the terminal window will close automatically 
 | **Qwen3.6-27B-4bit** | ~15 GB | `~/.local/share/junie-local/models/` |
 | **Qwen3.6-27B-MTP-4bit** | ~247 MB | `~/.local/share/junie-local/models/` |
 
-Every archive is downloaded, verified against its SHA256 checksum, and unpacked. A marker file records each completed unpack (`.models--<id>.installed` for models, `.<version>.installed` for the engine), so re-running the installer skips what is already in place.
+Every archive is downloaded, verified against its SHA256 checksum, and unpacked. A marker file records each completed unpack (`.<id>.installed` for models, `.<version>.installed` for the engine), so re-running the installer skips what is already in place.
 
 Resulting layout:
 

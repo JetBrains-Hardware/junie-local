@@ -60,8 +60,8 @@ MODEL_SHA256_2="3131d15127297d26c5e97ab63e242be5d1a81b3c8a390fa6e5b6e5a08d7f4f90
 MODEL_ID_2="Qwen3.8-27B-MTP-MLX-4bit"
 MODEL_LABEL_2="MTP draft model"
 
-# Name the engine serves the main model under. The models-- directories above
-# are the Hugging Face cache spelling of the same id.
+# Name the engine serves the main model under. It matches the directory the
+# archive unpacks into under $MODELS_DIR.
 ENGINE_MODEL_NAME="Qwen3.8-27B-MLX-4bit"
 
 # Inference engine release. Versions are unpacked side by side under versions/
@@ -659,16 +659,16 @@ download_and_verify() {
 }
 
 # Check if a model has been fully unzipped to the models directory.
-# The zip files are named models--<model_id>.zip, so the extracted dir has a
-# "models--" prefix. A completion marker file is written after extraction —
-# a model directory without it is a leftover from an interrupted extraction.
+# Each archive unpacks into $MODELS_DIR/<model_id>. A completion marker file is
+# written after extraction — a model directory without it is a leftover from an
+# interrupted extraction.
 model_completion_marker() {
-  echo "$MODELS_DIR/.models--$1.installed"
+  echo "$MODELS_DIR/.$1.installed"
 }
 
 model_installed() {
   model_id="$1"
-  [ -d "$MODELS_DIR/models--$model_id" ] && [ -f "$(model_completion_marker "$model_id")" ]
+  [ -d "$MODELS_DIR/$model_id" ] && [ -f "$(model_completion_marker "$model_id")" ]
 }
 
 # Download and install each model only if not already present
@@ -751,5 +751,5 @@ echo "  to wait for the model to load."
 echo "  Default model set to $JUNIE_MODEL_ID."
 echo "  Restart Junie to apply the changes."
 echo "  Control the engine with: $ENGINE_CTL {start|stop|status|wait}"
-emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT,\"model_path\":\"$(json_escape "$MODELS_DIR/models--$MODEL_ID_1")\",\"label\":\"$(json_escape "$MODEL_LABEL_1")\""
+emit_event "\"event\":\"done\",\"model_id\":\"$JUNIE_MODEL_ID\",\"port\":$ENGINE_PORT,\"model_path\":\"$(json_escape "$MODELS_DIR/$MODEL_ID_1")\",\"label\":\"$(json_escape "$MODEL_LABEL_1")\""
 wait_and_exit 0
