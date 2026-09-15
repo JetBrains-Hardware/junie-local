@@ -2,10 +2,20 @@ name: Deploy to S3
 
 on:
   workflow_dispatch:
+    inputs:
+      filename:
+        description: "File name to download from https://junie-local.erokhins.com/ and upload to S3 (the matching .sha256 file is uploaded too)"
+        required: true
+        type: string
 
 permissions:
   id-token: write   # Required for OIDC token to assume AWS role
   contents: read
+
+env:
+  SOURCE_BASE_URL: https://junie-local.erokhins.com
+  S3_BASE_URI: s3://download-prod-cdn.jetbrains.com/resources/junie-local
+  AWS_REGION: eu-west-1
 
 jobs:
   deploy:
@@ -22,42 +32,28 @@ jobs:
           role-session-name: GitHub_to_AWS_via_FederatedOIDC
           aws-region: eu-west-1
 
-      - name: Download and upload model archive
+      - name: Download and upload archive
+        env:
+          FILENAME: ${{ inputs.filename }}
         run: |
           curl --fail --location --progress-bar \
-            "https://junie-local.erokhins.com/Qwen3.6-27B-MLX-4bit.zip" \
+            "$SOURCE_BASE_URL/$FILENAME" \
             | aws s3 cp \
               - \
-              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MLX-4bit.zip" \
+              "$S3_BASE_URI/$FILENAME" \
               --acl private \
-              --region eu-west-1 \
+              --region "$AWS_REGION" \
               --no-guess-mime-type
 
-      - name: Upload SHA256 checksum
-        run: |
-          aws s3 cp \
-            deploy/Qwen3.6-27B-MLX-4bit.zip.sha256 \
-            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MLX-4bit.zip.sha256" \
-            --acl private \
-            --region eu-west-1 \
-            --no-guess-mime-type
-
-      - name: Download and upload MTP model archive
+      - name: Download and upload SHA256 checksum
+        env:
+          FILENAME: ${{ inputs.filename }}
         run: |
           curl --fail --location --progress-bar \
-            "https://junie-local.erokhins.com/Qwen3.6-27B-MTP-MLX-4bit.zip" \
+            "$SOURCE_BASE_URL/$FILENAME.sha256" \
             | aws s3 cp \
               - \
-              "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MTP-MLX-4bit.zip" \
+              "$S3_BASE_URI/$FILENAME.sha256" \
               --acl private \
-              --region eu-west-1 \
+              --region "$AWS_REGION" \
               --no-guess-mime-type
-
-      - name: Upload MTP SHA256 checksum
-        run: |
-          aws s3 cp \
-            deploy/Qwen3.6-27B-MTP-MLX-4bit.zip.sha256 \
-            "s3://download-prod-cdn.jetbrains.com/resources/junie-local/Qwen3.6-27B-MTP-MLX-4bit.zip.sha256" \
-            --acl private \
-            --region eu-west-1 \
-            --no-guess-mime-type
